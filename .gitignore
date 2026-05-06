@@ -42,6 +42,7 @@ next-env.d.ts
 
 tmp/*
 backend/.env
+backend/assets/generated_images/*
 
 **/__pycache__/
 **/*.pyc
