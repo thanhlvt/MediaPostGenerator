@@ -1,0 +1,58 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./tmp:/app/tmp
+    env_file:
+      - ./backend/.env
+    environment:
+      - ANONYMIZED_TELEMETRY=False
+      - CHROMA_HOST=chroma
+      - CHROMA_PORT=8000
+      - DATABASE_URL=postgresql://user:password@postgres:5432/mediadb
+      - BACKEND_URL=http://localhost:8000
+    depends_on:
+      - chroma
+      - postgres
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+
+  chroma:
+    image: chromadb/chroma:0.5.5
+    ports:
+      - "8001:8000"
+    environment:
+      - ANONYMIZED_TELEMETRY=False
+    volumes:
+      - chroma_data:/chroma/chroma
+
+  postgres:
+    image: postgres:15
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=mediadb
+      - TZ=Asia/Ho_Chi_Minh
+      - PGTZ=Asia/Ho_Chi_Minh
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  chroma_data:
+  postgres_data:
