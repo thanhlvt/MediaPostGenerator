@@ -267,8 +267,8 @@ async def review_post(thread_id: str, request: ReviewRequest, background_tasks: 
             niche=state.get("niche", ""),
             research_brief=state.get("research_brief", ""),
             post_contents=state.get("post_contents", {}),
-            image_url=None,
-            image_prompt=None
+            image_url=state.get("image_url"),
+            image_prompt=state.get("image_prompt")
         )
         update_post_status(thread_id, "REJECTED")
         

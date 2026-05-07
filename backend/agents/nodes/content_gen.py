@@ -123,8 +123,8 @@ def image_agent_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any
     thread_id = config.get("configurable", {}).get("thread_id", "unknown")
     
     if state.get("image_url"):
-        logger.info("Image already generated. Skipping.")
-        return {"status": "QUALITY_ASSURANCE"}
+        logger.info("Image already generated. Skipping image creation.")
+        return {}
         
     llm = get_llm()
     
