@@ -34,13 +34,63 @@ class GeneratedPost(Base):
     image_prompt = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
+class Setting(Base):
+    __tablename__ = "settings"
+
+    key = Column(String, primary_key=True) # e.g., "topic_model", "research_model", "writer_model", "image_model"
+    value = Column(String, nullable=False)
+
 def init_db():
     if engine:
         try:
             Base.metadata.create_all(bind=engine)
             logger.info("Database tables created successfully.")
+            # Initialize default settings if not exists
+            db = SessionLocal()
+            try:
+                defaults = {
+                    "topic_model": "deepseek/deepseek-v4-flash",
+                    "research_model": "deepseek/deepseek-v4-flash",
+                    "writer_model": "deepseek/deepseek-v4-flash",
+                    "qa_model": "deepseek/deepseek-v4-flash",
+                    "image_model": "google/gemini-2.5-flash-image"
+                }
+                for k, v in defaults.items():
+                    exists = db.query(Setting).filter(Setting.key == k).first()
+                    if not exists:
+                        db.add(Setting(key=k, value=v))
+                db.commit()
+            finally:
+                db.close()
         except Exception as e:
             logger.error(f"Failed to create database tables: {e}")
+
+def get_settings():
+    if not SessionLocal: return {}
+    db = SessionLocal()
+    try:
+        settings = db.query(Setting).all()
+        return {s.key: s.value for s in settings}
+    finally:
+        db.close()
+
+def update_settings(new_settings: dict):
+    if not SessionLocal: return
+    db = SessionLocal()
+    try:
+        for k, v in new_settings.items():
+            setting = db.query(Setting).filter(Setting.key == k).first()
+            if setting:
+                setting.value = v
+            else:
+                db.add(Setting(key=k, value=v))
+        db.commit()
+        logger.info("Settings updated successfully.")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating settings: {e}")
+    finally:
+        db.close()
 
 def save_post_to_db(thread_id: str, topic: str, niche: str, research_brief: str, post_contents: dict, image_url: str = None, image_prompt: str = None):
     if not SessionLocal:

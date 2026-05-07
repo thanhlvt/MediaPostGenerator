@@ -58,6 +58,7 @@ export default function ReviewPage() {
 
   // SSE for real-time streaming
   const lastIndexRef = useRef<number>(-1);
+  const needsClearPostsRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const briefScrollRef = useRef<HTMLPreElement>(null);
   const postsScrollRef = useRef<HTMLDivElement>(null);
@@ -112,16 +113,26 @@ export default function ReviewPage() {
           setExpandedReasoning(e => e.brief ? e : ({ ...e, brief: true }));
           setData((prev: any) => ({ ...prev, brief_reasoning: (prev?.brief_reasoning || "") + payload.content }));
         } else if (payload.type === "token") {
+          const shouldClear = needsClearPostsRef.current;
+          if (shouldClear) needsClearPostsRef.current = false;
           setExpandedReasoning(e => e[payload.platform] ? ({ ...e, [payload.platform]: false }) : e);
           setData((prev: any) => {
             if (prev?.status !== "WRITING") return prev;
+            if (shouldClear) {
+              return { ...prev, post_contents: { [payload.platform]: payload.content }, reasoning: {} };
+            }
             const newContents = { ...prev?.post_contents };
             newContents[payload.platform] = (newContents[payload.platform] || "") + payload.content;
             return { ...prev, post_contents: newContents };
           });
         } else if (payload.type === "reasoning") {
+          const shouldClear = needsClearPostsRef.current;
+          if (shouldClear) needsClearPostsRef.current = false;
           setExpandedReasoning(e => e[payload.platform] ? e : ({ ...e, [payload.platform]: true }));
           setData((prev: any) => {
+            if (shouldClear) {
+              return { ...prev, post_contents: {}, reasoning: { [payload.platform]: payload.content } };
+            }
             const newReasoning = { ...prev?.reasoning || {} };
             newReasoning[payload.platform] = (newReasoning[payload.platform] || "") + payload.content;
             return { ...prev, reasoning: newReasoning };
@@ -165,6 +176,7 @@ export default function ReviewPage() {
         if (action === "REJECT") {
           setIsRejecting(false);
           setFeedback("");
+          needsClearPostsRef.current = true;
           setData((prev: any) => ({ ...prev, status: "WRITING", post_contents: {} }));
         } else {
           alert("Post Approved and Scheduled!");
@@ -303,39 +315,38 @@ export default function ReviewPage() {
                 <span className="text-xl">🔍</span> AI Topic Suggestions
                 {status === "START" && <span className="ml-auto w-4 h-4 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin"></span>}
               </h2>
-              {!data?.selected_title ? (
-                <div className="space-y-3 animate-pulse">
-                  <div className="h-16 bg-slate-800/50 rounded-lg w-full"></div>
-                  <div className="h-32 bg-slate-800/30 rounded-lg w-full border border-slate-700/50"></div>
-                </div>
-              ) : (
-                <div className="space-y-4 animate-in fade-in zoom-in-95 duration-500">
-                  {data.topic_reasoning && (
-                    <div className="border border-slate-800 rounded-lg overflow-hidden">
-                      <button 
-                        onClick={() => setExpandedReasoning(prev => ({ ...prev, topic: !prev.topic }))}
-                        className="w-full flex items-center justify-between px-3 py-1.5 bg-slate-900/80 hover:bg-slate-800 transition-colors text-[10px] text-slate-500 font-bold uppercase tracking-tighter"
-                      >
-                        <span className="flex items-center gap-2">
-                          <span className="opacity-50">AI Reasoning</span>
-                          {status === "START" && <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>}
-                        </span>
-                        <span>{expandedReasoning.topic ? "Collapse ↑" : "Expand ↓"}</span>
-                      </button>
-                      {expandedReasoning.topic && (
-                        <div className="p-3 bg-slate-900/30 text-[10px] text-slate-500 italic leading-relaxed animate-in slide-in-from-top-1 duration-200">
-                          {data.topic_reasoning}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <div className="p-4 bg-indigo-500/10 border border-indigo-500/30 rounded-lg">
+              <div className="space-y-4">
+                {data?.topic_reasoning && (
+                  <div className="border border-slate-800 rounded-lg overflow-hidden animate-in fade-in zoom-in-95 duration-500">
+                    <button
+                      onClick={() => setExpandedReasoning(prev => ({ ...prev, topic: !prev.topic }))}
+                      className="w-full flex items-center justify-between px-3 py-1.5 bg-slate-900/80 hover:bg-slate-800 transition-colors text-[10px] text-slate-500 font-bold uppercase tracking-tighter"
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="opacity-50">AI Reasoning</span>
+                        {status === "START" && <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>}
+                      </span>
+                      <span>{expandedReasoning.topic ? "Collapse ↑" : "Expand ↓"}</span>
+                    </button>
+                    {expandedReasoning.topic && (
+                      <div className="p-3 bg-slate-900/30 text-[10px] text-slate-500 italic leading-relaxed animate-in slide-in-from-top-1 duration-200">
+                        {data.topic_reasoning}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {!data?.selected_title ? (
+                  <div className="space-y-3 animate-pulse">
+                    <div className="h-16 bg-slate-800/50 rounded-lg w-full"></div>
+                    <div className="h-32 bg-slate-800/30 rounded-lg w-full border border-slate-700/50"></div>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-indigo-500/10 border border-indigo-500/30 rounded-lg animate-in fade-in zoom-in-95 duration-500">
                     <p className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-1">Selected Primary Topic</p>
                     <p className="text-base font-medium">{data.selected_title}</p>
                   </div>
-
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             {/* Brief Section */}
@@ -344,43 +355,43 @@ export default function ReviewPage() {
                 <span className="text-xl">📚</span> Research Brief
                 {status === "RESEARCHING" && <span className="ml-auto w-4 h-4 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin"></span>}
               </h2>
-              {!data?.research_brief ? (
-                <div className="space-y-3 animate-pulse pt-2">
-                  <div className="h-3 bg-slate-800/60 rounded w-3/4"></div>
-                  <div className="h-3 bg-slate-800/60 rounded w-full"></div>
-                  <div className="h-3 bg-slate-800/60 rounded w-full"></div>
-                  <div className="h-3 bg-slate-800/60 rounded w-5/6"></div>
-                  <div className="h-3 bg-slate-800/60 rounded w-1/2"></div>
-                </div>
-              ) : (
-                <div className="prose prose-invert max-w-none text-slate-300 animate-in fade-in zoom-in-95 duration-500">
-                  {data.brief_reasoning && (
-                    <div className="border border-slate-800 rounded-lg overflow-hidden mb-4">
-                      <button 
-                        onClick={() => setExpandedReasoning(prev => ({ ...prev, brief: !prev.brief }))}
-                        className="w-full flex items-center justify-between px-3 py-1.5 bg-slate-900/80 hover:bg-slate-800 transition-colors text-[10px] text-slate-500 font-bold uppercase tracking-tighter"
-                      >
-                        <span className="flex items-center gap-2">
-                          <span className="opacity-50">AI Reasoning</span>
-                          {status === "RESEARCHING" && <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>}
-                        </span>
-                        <span>{expandedReasoning.brief ? "Collapse ↑" : "Expand ↓"}</span>
-                      </button>
-                      {expandedReasoning.brief && (
-                        <div className="p-3 bg-slate-900/30 text-[10px] text-slate-500 italic leading-relaxed animate-in slide-in-from-top-1 duration-200">
-                          {data.brief_reasoning}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <pre 
+              <div className="space-y-4">
+                {data?.brief_reasoning && (
+                  <div className="border border-slate-800 rounded-lg overflow-hidden animate-in fade-in zoom-in-95 duration-500">
+                    <button
+                      onClick={() => setExpandedReasoning(prev => ({ ...prev, brief: !prev.brief }))}
+                      className="w-full flex items-center justify-between px-3 py-1.5 bg-slate-900/80 hover:bg-slate-800 transition-colors text-[10px] text-slate-500 font-bold uppercase tracking-tighter"
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="opacity-50">AI Reasoning</span>
+                        {status === "RESEARCHING" && <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>}
+                      </span>
+                      <span>{expandedReasoning.brief ? "Collapse ↑" : "Expand ↓"}</span>
+                    </button>
+                    {expandedReasoning.brief && (
+                      <div className="p-3 bg-slate-900/30 text-[10px] text-slate-500 italic leading-relaxed animate-in slide-in-from-top-1 duration-200">
+                        {data.brief_reasoning}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {!data?.research_brief ? (
+                  <div className="space-y-3 animate-pulse pt-2">
+                    <div className="h-3 bg-slate-800/60 rounded w-3/4"></div>
+                    <div className="h-3 bg-slate-800/60 rounded w-full"></div>
+                    <div className="h-3 bg-slate-800/60 rounded w-full"></div>
+                    <div className="h-3 bg-slate-800/60 rounded w-5/6"></div>
+                    <div className="h-3 bg-slate-800/60 rounded w-1/2"></div>
+                  </div>
+                ) : (
+                  <pre
                     ref={briefScrollRef}
-                    className="whitespace-pre-wrap font-sans text-xs bg-slate-900/50 p-4 rounded-lg border border-slate-800 max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700"
+                    className="whitespace-pre-wrap font-sans text-xs bg-slate-900/50 p-4 rounded-lg border border-slate-800 max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700 animate-in fade-in zoom-in-95 duration-500"
                   >
                     {data.research_brief}
                   </pre>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
 
@@ -398,50 +409,68 @@ export default function ReviewPage() {
                 </div>
               )}
 
-              {!data?.post_contents || Object.keys(data.post_contents).length === 0 ? (
-                <div className="space-y-4 animate-pulse">
-                  <div className="h-40 bg-slate-800/40 rounded-lg w-full border border-slate-700/30"></div>
-                  <div className="h-40 bg-slate-800/40 rounded-lg w-full border border-slate-700/30"></div>
-                </div>
-              ) : (
-                <div 
-                  ref={postsScrollRef}
-                  className="space-y-4 max-h-[500px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-700 animate-in fade-in zoom-in-95 duration-500"
-                >
-                  {Object.entries(data.post_contents).map(([platform, content]: [string, any]) => (
-                    <div key={platform} className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50 shadow-inner">
-                      <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
-                        <h3 className="font-bold text-sm bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded">{platform}</h3>
-                        <span className="text-[10px] bg-slate-800 px-2 py-1 rounded-full text-slate-400 font-medium">
-                          {data.scheduled_times?.[platform] ? `Scheduled: ${data.scheduled_times[platform]}` : "Pending Schedule"}
-                        </span>
-                      </div>
-                      
-                      {data.reasoning?.[platform] && (
-                        <div className="mb-4 border border-slate-800 rounded-lg overflow-hidden">
-                          <button 
-                            onClick={() => setExpandedReasoning(prev => ({ ...prev, [platform]: !prev[platform] }))}
-                            className="w-full flex items-center justify-between px-3 py-1.5 bg-slate-950/80 hover:bg-slate-900 transition-colors text-[10px] text-slate-600 font-bold uppercase tracking-tighter"
-                          >
-                            <span className="flex items-center gap-2">
-                              <span className="opacity-50">AI Reasoning</span>
-                              {status === "WRITING" && data.post_contents[platform]?.length < 50 && <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>}
-                            </span>
-                            <span>{expandedReasoning[platform] ? "Collapse ↑" : "Expand ↓"}</span>
-                          </button>
-                          {expandedReasoning[platform] && (
-                            <div className="p-3 bg-slate-950/30 text-[10px] text-slate-600 italic leading-relaxed animate-in slide-in-from-top-1 duration-200">
-                              {data.reasoning[platform]}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      <pre className="whitespace-pre-wrap font-sans text-sm text-slate-300 leading-relaxed">{content}</pre>
+              {(() => {
+                const allPlatforms = [...new Set([
+                  ...Object.keys(data?.reasoning || {}),
+                  ...Object.keys(data?.post_contents || {}),
+                ])];
+                if (allPlatforms.length === 0) {
+                  return (
+                    <div className="space-y-4 animate-pulse">
+                      <div className="h-40 bg-slate-800/40 rounded-lg w-full border border-slate-700/30"></div>
+                      <div className="h-40 bg-slate-800/40 rounded-lg w-full border border-slate-700/30"></div>
                     </div>
-                  ))}
-                </div>
-              )}
+                  );
+                }
+                return (
+                  <div
+                    ref={postsScrollRef}
+                    className="space-y-4 max-h-[500px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-700 animate-in fade-in zoom-in-95 duration-500"
+                  >
+                    {allPlatforms.map((platform) => (
+                      <div key={platform} className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50 shadow-inner">
+                        <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+                          <h3 className="font-bold text-sm bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded">{platform}</h3>
+                          <span className="text-[10px] bg-slate-800 px-2 py-1 rounded-full text-slate-400 font-medium">
+                            {data.scheduled_times?.[platform] ? `Scheduled: ${data.scheduled_times[platform]}` : "Pending Schedule"}
+                          </span>
+                        </div>
+
+                        {data.reasoning?.[platform] && (
+                          <div className="mb-4 border border-slate-800 rounded-lg overflow-hidden">
+                            <button
+                              onClick={() => setExpandedReasoning(prev => ({ ...prev, [platform]: !prev[platform] }))}
+                              className="w-full flex items-center justify-between px-3 py-1.5 bg-slate-950/80 hover:bg-slate-900 transition-colors text-[10px] text-slate-600 font-bold uppercase tracking-tighter"
+                            >
+                              <span className="flex items-center gap-2">
+                                <span className="opacity-50">AI Reasoning</span>
+                                {status === "WRITING" && !data.post_contents?.[platform] && <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>}
+                              </span>
+                              <span>{expandedReasoning[platform] ? "Collapse ↑" : "Expand ↓"}</span>
+                            </button>
+                            {expandedReasoning[platform] && (
+                              <div className="p-3 bg-slate-950/30 text-[10px] text-slate-600 italic leading-relaxed animate-in slide-in-from-top-1 duration-200">
+                                {data.reasoning[platform]}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {data.post_contents?.[platform] ? (
+                          <pre className="whitespace-pre-wrap font-sans text-sm text-slate-300 leading-relaxed">{data.post_contents[platform]}</pre>
+                        ) : (
+                          <div className="space-y-2 animate-pulse pt-1">
+                            <div className="h-3 bg-slate-800/60 rounded w-3/4"></div>
+                            <div className="h-3 bg-slate-800/60 rounded w-full"></div>
+                            <div className="h-3 bg-slate-800/60 rounded w-full"></div>
+                            <div className="h-3 bg-slate-800/60 rounded w-5/6"></div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Image Section */}

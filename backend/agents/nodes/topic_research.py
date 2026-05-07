@@ -46,7 +46,7 @@ async def topic_agent_node(state: AgentState, config: RunnableConfig) -> Dict[st
     
     full_response = ""
     full_reasoning = ""
-    async for token_obj in safe_stream_invoke(prompt):
+    async for token_obj in safe_stream_invoke(prompt, agent_type="topic"):
         if token_obj["type"] == "reasoning":
             # Just publish to frontend, don't add to final response
             full_reasoning += token_obj["content"]
@@ -119,7 +119,7 @@ YÊU CẦU OUTPUT — trả về đúng cấu trúc sau, không thêm section kh
     
     full_brief = ""
     full_reasoning = ""
-    async for token_obj in safe_stream_invoke(summary_prompt):
+    async for token_obj in safe_stream_invoke(summary_prompt, agent_type="research"):
         if token_obj["type"] == "reasoning":
             full_reasoning += token_obj["content"]
             await event_dispatcher.publish(thread_id, {"type": "brief_reasoning", "content": token_obj["content"]})

@@ -28,7 +28,7 @@ def platform_qa_agent_node(state: AgentState) -> Dict[str, Any]:
         return {"is_brand_voice_aligned": True}
 
     logger.info(f"--- START: QA Agent for {platform} ---")
-    llm = get_llm()
+    llm = get_llm(agent_type="qa")
     
     content = state.get("post_contents", {}).get(platform, "")
     brief = state.get("research_brief", "")

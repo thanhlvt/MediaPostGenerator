@@ -28,7 +28,7 @@ async def writer_agent_node(state: AgentState, config: RunnableConfig) -> Dict[s
 
     logger.info(f"--- START: Writer Agent (Platform: {platform}) ---")
     thread_id = config.get("configurable", {}).get("thread_id", "unknown")
-    llm = get_llm()
+    llm = get_llm(agent_type="writer")
     post_contents = state.get("post_contents") or {}
     platform_feedbacks = state.get("platform_feedbacks") or {}
     
@@ -90,7 +90,7 @@ async def writer_agent_node(state: AgentState, config: RunnableConfig) -> Dict[s
     await event_dispatcher.publish(thread_id, {"type": "start", "platform": platform})
     
     try:
-        async for token_obj in safe_stream_invoke(prompt):
+        async for token_obj in safe_stream_invoke(prompt, agent_type="writer"):
             if token_obj["type"] == "reasoning":
                 full_reasoning += token_obj["content"]
                 await event_dispatcher.publish(thread_id, {"type": "reasoning", "platform": platform, "content": token_obj["content"]})
@@ -126,7 +126,7 @@ def image_agent_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any
         logger.info("Image already generated. Skipping image creation.")
         return {}
         
-    llm = get_llm()
+    llm = get_llm(agent_type="writer")
     
     # Step 1: Create a visual prompt
     prompt_gen_msg = f"""Dựa trên nội dung bài viết sau, hãy tạo một prompt tiếng Anh chi tiết để tạo ảnh minh họa.
@@ -146,7 +146,7 @@ def image_agent_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any
     # Step 2: Generate image via OpenRouter
     # logger.info("Calling image generator API via OpenRouter...")
     # try:
-    #     url = generate_image(image_prompt)
+    #     url = generate_image(image_prompt, agent_type="image")
     #     save_image_from_url(url, "final_post_image")
     #     logger.info("Image successfully generated and saved to tmp.")
     # except Exception as e:

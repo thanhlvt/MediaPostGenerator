@@ -26,6 +26,7 @@ export default function RootLayout({
               <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
                 <a href="/" className="text-slate-300 hover:text-white transition-colors">Trang chủ</a>
                 <a href="/history" className="text-slate-300 hover:text-white transition-colors">Lịch sử</a>
+                <a href="/settings" className="text-slate-300 hover:text-white transition-colors">Cài đặt</a>
               </nav>
             </div>
           </div>

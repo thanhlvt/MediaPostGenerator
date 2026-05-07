@@ -17,14 +17,31 @@ OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/ap
 DEFAULT_TEXT_MODEL = os.getenv("DEFAULT_TEXT_MODEL", "deepseek/deepseek-v4-flash")
 DEFAULT_IMAGE_MODEL = os.getenv("DEFAULT_IMAGE_MODEL", "google/gemini-2.5-flash-image")
 
+def get_model_for_agent(agent_type: str) -> str:
+    """
+    Lấy model_name được cấu hình trong DB cho từng loại agent.
+    agent_type: 'topic', 'research', 'writer', 'qa', 'image'
+    """
+    from core.db import get_settings
+    settings = get_settings()
+    key = f"{agent_type}_model"
+    if agent_type == 'image':
+        return settings.get(key, DEFAULT_IMAGE_MODEL)
+    return settings.get(key, DEFAULT_TEXT_MODEL)
+
 # Image Placeholders from .env
 DEFAULT_IMAGE_SIZE = os.getenv("DEFAULT_IMAGE_SIZE", "0.5K")
 DEFAULT_IMAGE_ASPECT_RATIO = os.getenv("DEFAULT_IMAGE_ASPECT_RATIO", "1:1")
 
-def get_llm(model_name: str = DEFAULT_TEXT_MODEL, temperature: float = 0.7):
+def get_llm(model_name: str = None, temperature: float = 0.7, agent_type: str = None):
     """
     Returns a LangChain ChatOpenAI instance configured for OpenRouter.
     """
+    if not model_name:
+        if agent_type:
+            model_name = get_model_for_agent(agent_type)
+        else:
+            model_name = DEFAULT_TEXT_MODEL
     clean_client = httpx.Client(timeout=120.0)
     clean_async_client = httpx.AsyncClient(timeout=120.0)
     
@@ -70,7 +87,10 @@ def generate_image(prompt: str, model: str = None):
     Generate an image using OpenRouter's multimodal chat completion endpoint.
     """
     if model is None:
-        model = DEFAULT_IMAGE_MODEL
+        if agent_type:
+            model = get_model_for_agent(agent_type)
+        else:
+            model = DEFAULT_IMAGE_MODEL
         
     logger.info(f"Generating image ({DEFAULT_IMAGE_SIZE}, {DEFAULT_IMAGE_ASPECT_RATIO}) with model: {model}")
     
@@ -124,11 +144,16 @@ class OpenRouterError(Exception):
         self.code = code
         self.metadata = metadata
 
-async def stream_llm_response(prompt: str, model_name: str = DEFAULT_TEXT_MODEL, temperature: float = 0.7):
+async def stream_llm_response(prompt: str, model_name: str = None, temperature: float = 0.7, agent_type: str = None):
     """
     Streams the LLM response from OpenRouter with detailed error handling (Async).
     Yields tokens (strings).
     """
+    if not model_name:
+        if agent_type:
+            model_name = get_model_for_agent(agent_type)
+        else:
+            model_name = DEFAULT_TEXT_MODEL
     url = f"{OPENROUTER_BASE_URL}/chat/completions"
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -213,7 +238,7 @@ async def stream_llm_response(prompt: str, model_name: str = DEFAULT_TEXT_MODEL,
         logger.error(f"HTTP Request Error: {str(e)}")
         raise OpenRouterError(f"Connection Error: Không thể kết nối tới OpenRouter. ({str(e)})")
 
-async def safe_stream_invoke(prompt, model_name=DEFAULT_TEXT_MODEL, temperature=0.7, max_retries=2):
+async def safe_stream_invoke(prompt, model_name=None, temperature=0.7, max_retries=2, agent_type=None):
     """
     Wraps stream_llm_response with retry logic and full content aggregation (Async).
     """
@@ -221,7 +246,7 @@ async def safe_stream_invoke(prompt, model_name=DEFAULT_TEXT_MODEL, temperature=
     last_error = None
     for attempt in range(max_retries + 1):
         try:
-            async for token in stream_llm_response(prompt, model_name, temperature):
+            async for token in stream_llm_response(prompt, model_name, temperature, agent_type):
                 yield token
             return # Success
         except OpenRouterError as e:

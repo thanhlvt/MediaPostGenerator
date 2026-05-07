@@ -13,7 +13,7 @@ import json
 from agents.orchestrator import create_social_media_graph
 from agents.state import AgentState
 from memory.vector_db import add_post_to_memory, add_feedback_to_memory
-from core.db import init_db, save_post_to_db, update_post_status, get_all_posts, get_post_by_id
+from core.db import init_db, save_post_to_db, update_post_status, get_all_posts, get_post_by_id, get_settings, update_settings
 from core.events import event_dispatcher
 
 logger = logging.getLogger(__name__)
@@ -170,6 +170,15 @@ async def get_status(thread_id: str):
         "image_prompt": state.get("image_prompt"),
         "scheduled_times": state.get("scheduled_times", {})
     }
+
+@app.get("/api/settings")
+async def fetch_settings():
+    return get_settings()
+
+@app.post("/api/settings")
+async def save_settings(request: dict):
+    update_settings(request)
+    return {"status": "success"}
 
 @app.get("/api/posts")
 async def list_posts():
