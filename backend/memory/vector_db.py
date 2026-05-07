@@ -66,15 +66,18 @@ def add_post_to_memory(post_id: str, content: str, metadata: dict):
     except Exception as e:
         logger.error(f"Failed to add post to memory: {e}")
 
-def search_past_posts(query: str, n_results: int = 3):
+def search_past_posts(query: str, n_results: int = 3, niche: str = None):
     try:
         collection = get_collection("posts_history")
         if collection.count() == 0:
             return {"documents": [[]], "metadatas": [[]]}
             
+        where_clause = {"niche": niche} if niche else None
+        
         results = collection.query(
             query_texts=[query],
-            n_results=min(n_results, collection.count())
+            n_results=min(n_results, collection.count()),
+            where=where_clause
         )
         return results
     except Exception as e:
@@ -92,15 +95,18 @@ def add_feedback_to_memory(feedback_id: str, feedback_text: str, metadata: dict)
     except Exception as e:
         logger.error(f"Failed to add feedback to memory: {e}")
 
-def search_past_feedback(query: str, n_results: int = 3):
+def search_past_feedback(query: str, n_results: int = 3, niche: str = None):
     try:
         collection = get_collection("human_feedback")
         if collection.count() == 0:
             return {"documents": [[]], "metadatas": [[]]}
             
+        where_clause = {"niche": niche} if niche else None
+        
         results = collection.query(
             query_texts=[query],
-            n_results=min(n_results, collection.count())
+            n_results=min(n_results, collection.count()),
+            where=where_clause
         )
         return results
     except Exception as e:

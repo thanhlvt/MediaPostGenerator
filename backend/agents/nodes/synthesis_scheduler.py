@@ -18,92 +18,70 @@ def extract_json(text):
             pass
     return None
 
-def synthesis_qa_agent_node(state: AgentState) -> Dict[str, Any]:
+def platform_qa_agent_node(state: AgentState) -> Dict[str, Any]:
     """
-    Synthesis + QA Agent: Final check, brand voice alignment, and fact-checking.
-    Also handles feedback from human review.
+    Quality Assurance Agent for a SPECIFIC platform.
     """
-    logger.info("--- START: Synthesis & QA Agent ---")
+    platform = state.get("current_platform")
+    if not platform:
+        logger.error("current_platform not set in platform_qa_agent_node")
+        return {"is_brand_voice_aligned": True}
+
+    logger.info(f"--- START: QA Agent for {platform} ---")
     llm = get_llm()
     
-    if state.get("feedback"):
-        logger.info(f"Processing feedback: {state['feedback']}")
-        pass
-
+    content = state.get("post_contents", {}).get(platform, "")
+    brief = state.get("research_brief", "")
+    
     feedback_instruction = ""
     if state.get("feedback"):
         feedback_instruction = f"""
-    LƯU Ý TỐI QUAN TRỌNG: 
-    Bài viết này vừa được chỉnh sửa theo yêu cầu sau: "{state['feedback']}"
-    Nếu nội dung bài viết thay đổi để tuân thủ yêu cầu trên (ví dụ: thay đổi mốc thời gian, thay đổi giọng văn, thêm bớt chi tiết... khác với Research Brief), BẠN PHẢI CHẤP NHẬN SỰ SAI LỆCH NÀY VÀ CHO 'PASSED'.
+    LƯU Ý QUAN TRỌNG: Bài viết vừa được sửa theo yêu cầu: "{state['feedback']}"
+    Nếu nội dung thay đổi để khớp yêu cầu này, bạn PHẢI cho 'PASSED'.
     """
 
-    qa_prompt = f"""Hãy kiểm tra tính nhất quán và chất lượng của các bài đăng mạng xã hội sau:
-    Nội dung: {state['post_contents']}
-    Research Brief: {state['research_brief']}
+    qa_prompt = f"""Hãy kiểm tra chất lượng bài đăng mạng xã hội sau:
+    Nền tảng: {platform}
+    Nội dung: {content}
+    Research Brief: {brief}
     {feedback_instruction}
     
     Yêu cầu:
-    - Kiểm tra xem các số liệu có khớp với Research Brief không (ngoại trừ các thay đổi do yêu cầu đặc biệt ở trên).
-    - Kiểm tra xem giọng văn có phù hợp không.
+    - Kiểm tra số liệu có khớp Research Brief không.
+    - Kiểm tra giọng văn có phù hợp {platform} không.
     
-    BẮT BUỘC: Bạn PHẢI trả về kết quả dưới định dạng JSON duy nhất. KHÔNG trả về gì khác ngoài JSON.
-    Cú pháp JSON:
+    TRẢ VỀ JSON:
     {{
-        "TikTok": {{"status": "PASSED"}},
-        "Instagram": {{"status": "FAILED", "reason": "Mô tả lỗi cụ thể ở đây"}}
+        "status": "PASSED" hoặc "FAILED",
+        "reason": "Lý do nếu FAILED"
     }}
-    Lưu ý: Thay thế các key bằng đúng tên nền tảng tương ứng.
     """
     response = safe_invoke(llm, qa_prompt)
-    save_llm_output("qa_result", qa_prompt, response.content)
-    logger.info(f"QA Result: {response.content}")
+    qa_filepath = save_llm_output(f"qa_result_{platform}", qa_prompt, response.content)
+    logger.info(f"QA result for {platform} saved to: {qa_filepath}")
+    qa_result = extract_json(response.content) or {"status": "PASSED"}
     
-    # Parse JSON
-    qa_result_json = extract_json(response.content)
-    approved_platforms = []
-    platform_feedbacks = {}
+    is_passed = qa_result.get("status", "").upper() == "PASSED"
     
-    if qa_result_json:
-        for platform, res in qa_result_json.items():
-            if res.get("status", "").upper() == "PASSED":
-                approved_platforms.append(platform)
-            else:
-                platform_feedbacks[platform] = res.get("reason", "Không đạt yêu cầu QA")
-    else:
-        # Fallback
-        is_passed = "PASSED" in response.content.upper()
-        if is_passed:
-            approved_platforms = list(state['post_contents'].keys())
-        else:
-            for p in state['post_contents'].keys():
-                platform_feedbacks[p] = response.content
-                
-    current_retry = state.get("retry_count")
-    if current_retry is None:
-        current_retry = 0
-
-    all_passed = len(approved_platforms) == len(state['post_contents'])
+    approved_platforms = [platform] if is_passed else []
+    platform_feedbacks = {platform: qa_result.get("reason", "Không đạt QA")} if not is_passed else {}
     
-    if not all_passed:
-        current_retry += 1
-        logger.warning(f"QA Failed for some platforms. Incrementing retry_count to {current_retry}")
+    # Handle retry count per platform
+    retry_dict = state.get("retry_count") or {}
+    platform_retry = retry_dict.get(platform, 0)
+    
+    if not is_passed:
+        platform_retry += 1
+        logger.warning(f"QA Failed for {platform}. Retry: {platform_retry}")
 
-    if current_retry >= 3:
-        logger.warning("Max retries reached. Forcing WAITING_FOR_REVIEW.")
-        status = "WAITING_FOR_REVIEW"
-    else:
-        status = "WAITING_FOR_REVIEW" if all_passed else "WRITING"
-
-    logger.info("--- END: Synthesis & QA Agent ---")
+    logger.info(f"--- END: QA Agent for {platform} (Result: {qa_result.get('status')}) ---")
+    
     return {
-        "is_brand_voice_aligned": all_passed,
-        "fact_checked": all_passed,
-        "retry_count": current_retry,
-        "status": status,
         "approved_platforms": approved_platforms,
         "platform_feedbacks": platform_feedbacks,
-        "platforms_written_this_round": [] # Reset for next retry
+        "retry_count": {platform: platform_retry},
+        # Signal if this specific platform is finished or needs retry
+        "is_brand_voice_aligned": is_passed 
     }
 
 def scheduler_agent_node(state: AgentState) -> Dict[str, Any]:

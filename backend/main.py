@@ -80,7 +80,7 @@ async def start_generation(request: GenerateRequest, background_tasks: Backgroun
         "niche": request.niche,
         "platforms": request.platforms,
         "status": "START",
-        "retry_count": 0,
+        "retry_count": {},
         "error_count": 0,
         "review_history": []
     }
@@ -88,6 +88,9 @@ async def start_generation(request: GenerateRequest, background_tasks: Backgroun
     async def run_graph():
         config = {"configurable": {"thread_id": thread_id}}
         try:
+            # Wait for frontend SSE connection to avoid dumping all early tokens into history
+            await event_dispatcher.wait_for_subscriber(thread_id)
+            
             async for event in graph_app.astream(initial_state, config=config):
                 pass
             
@@ -95,10 +98,12 @@ async def start_generation(request: GenerateRequest, background_tasks: Backgroun
             state_snapshot = await graph_app.aget_state(config)
             if state_snapshot and state_snapshot.values:
                 state = state_snapshot.values
-                if state.get("status") == "WAITING_FOR_REVIEW":
+                # Save to DB if finished OR waiting for review at the scheduler node
+                if state.get("status") == "WAITING_FOR_REVIEW" or (state_snapshot.next and "scheduler_agent" in state_snapshot.next):
                     save_post_to_db(
                         thread_id=thread_id,
                         topic=state.get("selected_title", ""),
+                        niche=state.get("niche", ""),
                         research_brief=state.get("research_brief", ""),
                         post_contents=state.get("post_contents", {}),
                         image_url=state.get("image_url"),
@@ -195,6 +200,7 @@ async def review_post(thread_id: str, request: ReviewRequest, background_tasks: 
         # Construct a basic state from DB data to resume
         state = {
             "topic": db_post.topic,
+            "niche": db_post.niche,
             "selected_title": db_post.topic,
             "research_brief": db_post.research_brief,
             "post_contents": db_post.post_contents or {},
@@ -203,7 +209,7 @@ async def review_post(thread_id: str, request: ReviewRequest, background_tasks: 
             "status": db_post.status,
             "platforms": list((db_post.post_contents or {}).keys()) or ["TikTok", "Facebook", "Twitter"],
             "error_count": 0,
-            "retry_count": 0,
+            "retry_count": {},
             "review_history": []
         }
         # Update the graph state so we can resume
@@ -237,9 +243,10 @@ async def review_post(thread_id: str, request: ReviewRequest, background_tasks: 
                 
     elif new_status == "REJECTED" and request.feedback:
         topic = state.get("selected_title", "Unknown Topic")
-        feedback_id = f"{thread_id}_{str(uuid.uuid4())[:8]}"
+        niche = state.get("niche", "Unknown Niche")
         metadata = {
-            "topic": topic
+            "topic": topic,
+            "niche": niche
         }
         try:
             add_feedback_to_memory(feedback_id, request.feedback, metadata)
@@ -252,14 +259,14 @@ async def review_post(thread_id: str, request: ReviewRequest, background_tasks: 
         update_dict["approved_platforms"] = []
         update_dict["platform_feedbacks"] = {}
         update_dict["platforms_written_this_round"] = []
-        update_dict["post_contents"] = {}
         
         # Immediately clear post_contents in DB and set status to REJECTED
         save_post_to_db(
             thread_id=thread_id,
             topic=state.get("selected_title", ""),
+            niche=state.get("niche", ""),
             research_brief=state.get("research_brief", ""),
-            post_contents={},
+            post_contents=state.get("post_contents", {}),
             image_url=None,
             image_prompt=None
         )

@@ -36,13 +36,13 @@ def get_llm(model_name: str = DEFAULT_TEXT_MODEL, temperature: float = 0.7):
         max_retries=3,
         http_client=clean_client,
         http_async_client=clean_async_client,
+        extra_body={
+            "reasoning": {"effort": "high"}
+        },
         model_kwargs={
             "extra_headers": {
                 "HTTP-Referer": "http://localhost:3000",
                 "X-Title": "MediaPostGenerator",
-            },
-            "extra_body": {
-                "reasoning": {"effort": "high"}
             }
         }
     )
@@ -195,11 +195,10 @@ async def stream_llm_response(prompt: str, model_name: str = DEFAULT_TEXT_MODEL,
                             if "choices" in data_json and len(data_json["choices"]) > 0:
                                 delta = data_json["choices"][0].get("delta", {})
                                 
-                                # Check for reasoning tokens (common in DeepSeek R1 / Reasoning models)
-                                if "reasoning" in delta and delta["reasoning"]:
-                                    yield {"type": "reasoning", "content": delta["reasoning"]}
-                                elif "thought" in delta and delta["thought"]:
-                                    yield {"type": "reasoning", "content": delta["thought"]}
+                                # Comprehensive check for reasoning tokens (OpenAI, DeepSeek, Google, etc.)
+                                reasoning_text = delta.get("reasoning") or delta.get("reasoning_content") or delta.get("thought")
+                                if reasoning_text:
+                                    yield {"type": "reasoning", "content": reasoning_text}
                                 
                                 # Standard content
                                 if "content" in delta and delta["content"]:

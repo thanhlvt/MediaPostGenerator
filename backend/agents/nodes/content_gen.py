@@ -12,120 +12,108 @@ logger = logging.getLogger(__name__)
 
 async def writer_agent_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
     """
-    Writer Agent: Creates content for each platform based on research.
+    Writer Agent: Creates content for a specific platform based on research.
     """
-    logger.info(f"--- START: Writer Agent (Platforms: {state['platforms']}) ---")
+    # In parallel mode, 'current_platform' should be set. 
+    # Fallback to platforms[0] if not present (for backward compatibility)
+    platform = state.get("current_platform")
+    if not platform:
+        platforms = state.get("platforms", [])
+        approved = state.get("approved_platforms", [])
+        written = state.get("platforms_written_this_round", [])
+        to_write = [p for p in platforms if p not in approved and p not in written]
+        if not to_write:
+            return {"status": "GENERATING_IMAGE"}
+        platform = to_write[0]
+
+    logger.info(f"--- START: Writer Agent (Platform: {platform}) ---")
     thread_id = config.get("configurable", {}).get("thread_id", "unknown")
     llm = get_llm()
     post_contents = state.get("post_contents") or {}
-    approved_platforms = state.get("approved_platforms") or []
     platform_feedbacks = state.get("platform_feedbacks") or {}
-    platforms_written = state.get("platforms_written_this_round") or []
     
     # Check if this is a retry and we have feedback from Human
     human_feedback_section = ""
-    if state.get("status") == "REJECTED" and state.get("feedback"):
-        # Human rejected (Prioritize this)
+    if state.get("feedback"):
         human_feedback_section = f"\nLƯU Ý QUAN TRỌNG TỪ NGƯỜI DUYỆT:\n{state['feedback']}\nBạn PHẢI sửa lại bài viết theo yêu cầu trên."
-        logger.info(f"Rewriting based on human feedback: {state['feedback'][:100]}...")
     
-    # Search Long-Term Memory (ChromaDB)
+    # Platform specific QA feedback
+    qa_feedback_section = ""
+    if platform in platform_feedbacks:
+        qa_feedback_section = f"\nLỖI CẦN SỬA (TỪ LẦN KIỂM DUYỆT TRƯỚC):\n{platform_feedbacks[platform]}\nBạn PHẢI khắc phục lỗi này."
+        
+    # Check if we have an existing post to revise
+    current_post_section = ""
+    if platform in post_contents and (human_feedback_section or qa_feedback_section):
+        current_post_section = f"\nNỘI DUNG BÀI VIẾT HIỆN TẠI (CẦN SỬA LẠI):\n---\n{post_contents[platform]}\n---\n"
+        
+    # Search Long-Term Memory (ChromaDB) - Cached or per-node
     memory_section = ""
     try:
-        search_query = state.get('selected_title')
-        if not search_query:
-            search_query = state.get('topic') or "social media post"
-            
-        past_posts = search_past_posts(search_query, n_results=1)
-        past_feedbacks = search_past_feedback(search_query, n_results=2)
-        
+        niche = state.get("niche")
+        search_query = state.get('selected_title') or state.get('topic') or "social media post"
+        past_posts = search_past_posts(search_query, n_results=1, niche=niche)
+        past_feedbacks = search_past_feedback(search_query, n_results=2, niche=niche)
         memories = []
         if past_posts and past_posts.get('documents') and len(past_posts['documents'][0]) > 0:
-            memories.append("MẪU BÀI ĐĂNG THÀNH CÔNG TRONG QUÁ KHỨ (Hãy tham khảo văn phong và cấu trúc):\n" + past_posts['documents'][0][0])
-            
+            memories.append("MẪU BÀI ĐĂNG THÀNH CÔNG TRONG QUÁ KHỨ:\n" + past_posts['documents'][0][0])
         if past_feedbacks and past_feedbacks.get('documents') and len(past_feedbacks['documents'][0]) > 0:
             feedbacks = "\n- ".join(past_feedbacks['documents'][0])
-            memories.append("LỜI PHÊ TỪ CÁC LẦN TRƯỚC (Hãy tuyệt đối tránh lặp lại lỗi này):\n- " + feedbacks)
-            
+            memories.append("LỜI PHÊ TỪ CÁC LẦN TRƯỚC:\n- " + feedbacks)
         if memories:
-            memory_section = "\n\n--- DỮ LIỆU TỪ BỘ NHỚ DÀI HẠN (LONG-TERM MEMORY) ---\n" + "\n\n".join(memories) + "\n--------------------------------------------------"
-            logger.info("Successfully loaded long-term memory into prompt.")
-    except Exception as e:
-        logger.warning(f"Failed to fetch long-term memory: {e}")
+            memory_section = "\n\n--- DỮ LIỆU TỪ BỘ NHỚ DÀI HẠN ---\n" + "\n\n".join(memories)
+    except: pass
+
+    platform_requirements = {
+        "Instagram": "Cần hook mạnh, icon sinh động, và 10-15 hashtags.",
+        "LinkedIn": "Cần giọng văn chuyên nghiệp, có cấu trúc rõ ràng (Problem-Agitation-Solution), ít hashtag.",
+        "Twitter": "Ngắn gọn, súc tích, dưới 280 ký tự.",
+        "TikTok": "Đây là nội dung cho DẠNG ẢNH CUỘN (Photo Scroll). Hãy chia nội dung thành 5-7 Slides. Mỗi Slide gồm: [Tiêu đề Slide] và [Nội dung ngắn gọn/Bullet points]. Slide 1: Hook bằng insight bất ngờ hoặc câu hỏi gây tò mò. Slide cuối là CTA.",
+        "Facebook": "Viết dài vừa phải, khoảng 2-3 đoạn, chú trọng vào tương tác ở cuối bài."
+    }
+    specific_requirement = platform_requirements.get(platform, "Viết nội dung phù hợp với đặc thù của nền tảng.")
+        
+    prompt = f"""Bạn là một chuyên gia Copywriter. Hãy viết một bài đăng mạng xã hội cho nền tảng {platform}.
+    Tiêu đề: {state.get('selected_title', '')}
+    RESEARCH BRIEF (chỉ dùng thông tin trong này): {state.get('research_brief', '')}
+    {human_feedback_section}
+    {qa_feedback_section}
+    {current_post_section}
+    {memory_section}
     
-    platforms_to_write = [p for p in state['platforms'] if p not in approved_platforms and p not in platforms_written]
+    Yêu cầu riêng cho {platform}:
+    - {specific_requirement}
+    """
     
-    if platforms_to_write:
-        platform = platforms_to_write[0]
-        logger.info(f"Writing content for {platform}...")
+    full_response = ""
+    full_reasoning = ""
+    await event_dispatcher.publish(thread_id, {"type": "start", "platform": platform})
+    
+    try:
+        async for token_obj in safe_stream_invoke(prompt):
+            if token_obj["type"] == "reasoning":
+                full_reasoning += token_obj["content"]
+                await event_dispatcher.publish(thread_id, {"type": "reasoning", "platform": platform, "content": token_obj["content"]})
+            else:
+                token = token_obj["content"]
+                full_response += token
+                await event_dispatcher.publish(thread_id, {"type": "token", "platform": platform, "content": token})
         
-        # Platform specific QA feedback
-        qa_feedback_section = ""
-        if platform in platform_feedbacks:
-            qa_feedback_section = f"\nLỖI CẦN SỬA (TỪ LẦN KIỂM DUYỆT TRƯỚC):\n{platform_feedbacks[platform]}\nBạn PHẢI khắc phục lỗi này."
-            
-        prompt = f"""Bạn là một chuyên gia Copywriter. Hãy viết một bài đăng mạng xã hội cho nền tảng {platform}.
-        Tiêu đề: {state.get('selected_title', '')}
-        Thông tin nghiên cứu: {state.get('research_brief', '')}
-        {human_feedback_section}
-        {qa_feedback_section}
-        {memory_section}
+        await event_dispatcher.publish(thread_id, {"type": "end", "platform": platform})
         
-        Yêu cầu riêng cho {platform}:
-        - Nếu là Instagram: Cần hook mạnh, icon sinh động, và 10-15 hashtags.
-        - Nếu là LinkedIn: Cần giọng văn chuyên nghiệp, có cấu trúc rõ ràng (Problem-Agitation-Solution), ít hashtag.
-        - Nếu là Twitter: Ngắn gọn, súc tích, dưới 280 ký tự.
-        - Nếu là TikTok: Đây là nội dung cho DẠNG ẢNH CUỘN (Photo Scroll). Hãy chia nội dung thành 5-7 Slides. Mỗi Slide gồm: [Tiêu đề Slide] và [Nội dung ngắn gọn/Bullet points]. Slide cuối là CTA.
-        - Nếu là Facebook: Viết dài vừa phải, khoảng 2-3 đoạn, chú trọng vào tương tác ở cuối bài.
-        
-        Nội dung bài viết:
-        """
-        # response = safe_invoke(llm, prompt)
-        # save_llm_output(f"post_{platform}", prompt, response.content)
-        # post_contents[platform] = response.content
-        
-        full_response = ""
-        full_reasoning = ""
-        # Notify start of streaming for this platform
-        await event_dispatcher.publish(thread_id, {"type": "start", "platform": platform})
-        
-        try:
-            async for token_obj in safe_stream_invoke(prompt):
-                if token_obj["type"] == "reasoning":
-                    full_reasoning += token_obj["content"]
-                    await event_dispatcher.publish(thread_id, {"type": "reasoning", "platform": platform, "content": token_obj["content"]})
-                else:
-                    token = token_obj["content"]
-                    full_response += token
-                    # Stream token to SSE
-                    await event_dispatcher.publish(thread_id, {"type": "token", "platform": platform, "content": token})
-            
-            # Notify end of streaming for this platform
-            await event_dispatcher.publish(thread_id, {"type": "end", "platform": platform})
-            
-            save_llm_output(f"post_{platform}", prompt, full_response)
-            if full_reasoning:
-                save_llm_output(f"post_{platform}_reasoning", prompt, full_reasoning)
-            
-            post_contents[platform] = full_response
-            platforms_written.append(platform)
-        except Exception as e:
-            logger.error(f"Error during streaming: {e}")
-            await event_dispatcher.publish(thread_id, {"type": "error", "message": str(e)})
-            raise e
+        # Combine reasoning and response for the audit log
+        combined_output = f"--- REASONING ---\n{full_reasoning}\n\n--- CONTENT ---\n{full_response}"
+        save_llm_output(f"post_{platform}", prompt, combined_output)
         
         logger.info(f"--- END: Writer Agent (Finished {platform}) ---")
         return {
-            "post_contents": post_contents,
-            "platforms_written_this_round": platforms_written,
-            "status": "WRITING"
+            "post_contents": {platform: full_response},
+            "platforms_written_this_round": [platform]
         }
-    
-    # If no platforms left to write, we proceed
-    logger.info("--- END: Writer Agent (All required platforms written) ---")
-    return {
-        "status": "GENERATING_IMAGE"
-    }
+    except Exception as e:
+        logger.error(f"Error during streaming for {platform}: {e}")
+        await event_dispatcher.publish(thread_id, {"type": "error", "message": f"Error on {platform}: {str(e)}"})
+        raise e
 
 def image_agent_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
     """
@@ -179,6 +167,5 @@ def image_agent_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any
     logger.info(f"--- END: Image Agent (URL: {url}) ---")
     return {
         "image_prompt": image_prompt,
-        "image_url": url,
-        "status": "QUALITY_ASSURANCE"
+        "image_url": url
     }

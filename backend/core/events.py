@@ -10,7 +10,21 @@ class EventDispatcher:
         self.subscribers: Dict[str, list[asyncio.Queue]] = {}
         # Dictionary of thread_id -> list of historical messages
         self.history: Dict[str, list[Any]] = {}
+        # Dictionary of thread_id -> asyncio.Event to wait for connection
+        self.connection_events: Dict[str, asyncio.Event] = {}
         self.lock = asyncio.Lock()
+        
+    async def wait_for_subscriber(self, thread_id: str, timeout: int = 15):
+        """Waits for at least one subscriber to connect to the given thread_id."""
+        if thread_id not in self.connection_events:
+            self.connection_events[thread_id] = asyncio.Event()
+            
+        try:
+            logger.info(f"Waiting for subscriber to connect on thread {thread_id}...")
+            await asyncio.wait_for(self.connection_events[thread_id].wait(), timeout=timeout)
+            logger.info(f"Subscriber connected on thread {thread_id}, proceeding.")
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout waiting for subscriber on thread {thread_id}. Proceeding anyway.")
 
     async def subscribe(self, thread_id: str) -> AsyncGenerator[Any, None]:
         queue = asyncio.Queue()
@@ -25,6 +39,10 @@ class EventDispatcher:
             if thread_id not in self.subscribers:
                 self.subscribers[thread_id] = []
             self.subscribers[thread_id].append(queue)
+            
+            # 3. Notify that a subscriber has connected
+            if thread_id in self.connection_events:
+                self.connection_events[thread_id].set()
         
         logger.info(f"New subscriber for thread {thread_id}. Sent {len(self.history.get(thread_id, []))} historical messages.")
         

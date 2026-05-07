@@ -11,6 +11,10 @@ export default function ReviewPage() {
   const [feedback, setFeedback] = useState("");
   const [isRejecting, setIsRejecting] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [expandedReasoning, setExpandedReasoning] = useState<Record<string, boolean>>({
+    topic: false,
+    brief: false
+  });
 
   useEffect(() => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -29,7 +33,10 @@ export default function ReviewPage() {
                  ...json, 
                  post_contents: prev.status === "WRITING" ? prev.post_contents : json.post_contents,
                  selected_title: prev.status === "START" ? prev.selected_title : json.selected_title,
-                 research_brief: prev.status === "RESEARCHING" ? prev.research_brief : json.research_brief
+                 research_brief: prev.status === "RESEARCHING" ? prev.research_brief : json.research_brief,
+                 reasoning: prev.reasoning || json.reasoning,
+                 topic_reasoning: prev.topic_reasoning || json.topic_reasoning,
+                 brief_reasoning: prev.brief_reasoning || json.brief_reasoning
                };
             }
             return json;
@@ -59,9 +66,6 @@ export default function ReviewPage() {
   useEffect(() => {
     const activeStreamingPhases = ["START", "RESEARCHING", "WRITING"];
     if (activeStreamingPhases.includes(data?.status)) {
-      // Scroll the main page
-      bottomRef.current?.scrollIntoView({ behavior: "auto" });
-      
       // Scroll internal containers if they are active
       if (data?.status === "RESEARCHING" && briefScrollRef.current) {
         briefScrollRef.current.scrollTop = briefScrollRef.current.scrollHeight;
@@ -90,27 +94,33 @@ export default function ReviewPage() {
         }
 
         if (payload.type === "topic_token") {
+          setExpandedReasoning(e => e.topic ? ({ ...e, topic: false }) : e);
           setData((prev: any) => {
             if (prev?.status !== "START") return prev; // Only append if in start/topic phase
             return { ...prev, selected_title: (prev?.selected_title || "") + payload.content };
           });
         } else if (payload.type === "topic_reasoning") {
+          setExpandedReasoning(e => e.topic ? e : ({ ...e, topic: true }));
           setData((prev: any) => ({ ...prev, topic_reasoning: (prev?.topic_reasoning || "") + payload.content }));
         } else if (payload.type === "brief_token") {
+          setExpandedReasoning(e => e.brief ? ({ ...e, brief: false }) : e);
           setData((prev: any) => {
-            if (prev?.status !== "RESEARCHING") return prev; // Only append if in research phase
+            if (prev?.status !== "RESEARCHING") return prev;
             return { ...prev, research_brief: (prev?.research_brief || "") + payload.content };
           });
         } else if (payload.type === "brief_reasoning") {
+          setExpandedReasoning(e => e.brief ? e : ({ ...e, brief: true }));
           setData((prev: any) => ({ ...prev, brief_reasoning: (prev?.brief_reasoning || "") + payload.content }));
         } else if (payload.type === "token") {
+          setExpandedReasoning(e => e[payload.platform] ? ({ ...e, [payload.platform]: false }) : e);
           setData((prev: any) => {
-            if (prev?.status !== "WRITING") return prev; // Only append if currently writing
+            if (prev?.status !== "WRITING") return prev;
             const newContents = { ...prev?.post_contents };
             newContents[payload.platform] = (newContents[payload.platform] || "") + payload.content;
             return { ...prev, post_contents: newContents };
           });
         } else if (payload.type === "reasoning") {
+          setExpandedReasoning(e => e[payload.platform] ? e : ({ ...e, [payload.platform]: true }));
           setData((prev: any) => {
             const newReasoning = { ...prev?.reasoning || {} };
             newReasoning[payload.platform] = (newReasoning[payload.platform] || "") + payload.content;
@@ -190,47 +200,11 @@ export default function ReviewPage() {
   console.log("Current Status:", status, "isCompleted:", isCompleted);
 
   return (
-    <main className="flex-1 container mx-auto p-6 pb-20 flex flex-col xl:flex-row gap-8">
+    <main className="flex-1 container mx-auto p-6 pb-20 flex flex-col gap-8">
       {/* Sidebar Progress Tracker */}
-      <div className="w-full xl:w-1/4 shrink-0">
-        <div className="glass-panel p-6 rounded-xl sticky top-6 border border-white/10 shadow-xl">
-          <h2 className="text-xl font-bold mb-6 text-white flex items-center gap-2">
-            <div className="relative w-6 h-6">
-              {(!isWaitingForReview && !isError && !isCompleted) && <div className="absolute inset-0 rounded-full border-t-2 border-indigo-500 animate-spin"></div>}
-              <div className="absolute inset-0 flex items-center justify-center text-sm">{isError ? "❌" : (isWaitingForReview || isCompleted) ? "✅" : "⚙️"}</div>
-            </div>
-            Tiến độ AI
-          </h2>
-          <div className="space-y-4">
-            {phases.slice(1, -1).map((phase, index) => {
-              const phaseIndex = phases.findIndex(p => p.key === phase.key);
-              const isDone = data ? (currentPhaseIndex > phaseIndex) : false;
-              const isActive = data?.status === phase.key;
-
-              return (
-                <div key={phase.key} className={`flex items-center gap-3 p-3 rounded-lg transition-all ${isActive ? "bg-indigo-500/20 border border-indigo-500/30" : "opacity-70"}`}>
-                  <div className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-sm ${isDone ? "bg-green-500 text-white" : isActive ? "bg-indigo-500 text-white shadow-[0_0_10px_rgba(99,102,241,0.6)]" : "bg-slate-800 text-slate-500"}`}>
-                    {isDone ? "✓" : index + 1}
-                  </div>
-                  <div className="flex-1">
-                    <p className={`text-sm font-medium ${isActive ? "text-white" : "text-slate-400"}`}>{phase.label}</p>
-                  </div>
-                  {isActive && !isCompleted && <span className="text-[10px] text-indigo-400 animate-pulse font-mono bg-indigo-500/10 px-2 py-0.5 rounded">...</span>}
-                </div>
-              );
-            })}
-          </div>
-          <div className="w-full bg-slate-800 h-1.5 rounded-full mt-8 overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-indigo-500 to-pink-500 transition-all duration-1000 ease-out"
-              style={{ width: `${(currentPhaseIndex / (phases.length - 1)) * 100}%` }}
-            ></div>
-          </div>
-        </div>
-      </div>
 
       {/* Main Content Area */}
-      <div className="w-full xl:w-3/4 flex flex-col space-y-6">
+      <div className="w-full flex flex-col space-y-6">
         {/* Header & Actions */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass-panel p-6 rounded-xl border border-indigo-500/20 shadow-lg relative overflow-hidden">
           {!isWaitingForReview && !isError && !isCompleted && (
@@ -337,9 +311,22 @@ export default function ReviewPage() {
               ) : (
                 <div className="space-y-4 animate-in fade-in zoom-in-95 duration-500">
                   {data.topic_reasoning && (
-                    <div className="p-3 bg-slate-900/50 border border-slate-800 rounded-lg text-[10px] text-slate-500 italic leading-relaxed">
-                      <p className="font-bold uppercase tracking-tighter mb-1 opacity-50">AI Reasoning</p>
-                      {data.topic_reasoning}
+                    <div className="border border-slate-800 rounded-lg overflow-hidden">
+                      <button 
+                        onClick={() => setExpandedReasoning(prev => ({ ...prev, topic: !prev.topic }))}
+                        className="w-full flex items-center justify-between px-3 py-1.5 bg-slate-900/80 hover:bg-slate-800 transition-colors text-[10px] text-slate-500 font-bold uppercase tracking-tighter"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="opacity-50">AI Reasoning</span>
+                          {status === "START" && <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>}
+                        </span>
+                        <span>{expandedReasoning.topic ? "Collapse ↑" : "Expand ↓"}</span>
+                      </button>
+                      {expandedReasoning.topic && (
+                        <div className="p-3 bg-slate-900/30 text-[10px] text-slate-500 italic leading-relaxed animate-in slide-in-from-top-1 duration-200">
+                          {data.topic_reasoning}
+                        </div>
+                      )}
                     </div>
                   )}
                   <div className="p-4 bg-indigo-500/10 border border-indigo-500/30 rounded-lg">
@@ -368,9 +355,22 @@ export default function ReviewPage() {
               ) : (
                 <div className="prose prose-invert max-w-none text-slate-300 animate-in fade-in zoom-in-95 duration-500">
                   {data.brief_reasoning && (
-                    <div className="p-3 bg-slate-900/50 border border-slate-800 rounded-lg text-[10px] text-slate-500 italic leading-relaxed mb-4">
-                      <p className="font-bold uppercase tracking-tighter mb-1 opacity-50">AI Reasoning</p>
-                      {data.brief_reasoning}
+                    <div className="border border-slate-800 rounded-lg overflow-hidden mb-4">
+                      <button 
+                        onClick={() => setExpandedReasoning(prev => ({ ...prev, brief: !prev.brief }))}
+                        className="w-full flex items-center justify-between px-3 py-1.5 bg-slate-900/80 hover:bg-slate-800 transition-colors text-[10px] text-slate-500 font-bold uppercase tracking-tighter"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="opacity-50">AI Reasoning</span>
+                          {status === "RESEARCHING" && <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>}
+                        </span>
+                        <span>{expandedReasoning.brief ? "Collapse ↑" : "Expand ↓"}</span>
+                      </button>
+                      {expandedReasoning.brief && (
+                        <div className="p-3 bg-slate-900/30 text-[10px] text-slate-500 italic leading-relaxed animate-in slide-in-from-top-1 duration-200">
+                          {data.brief_reasoning}
+                        </div>
+                      )}
                     </div>
                   )}
                   <pre 
@@ -418,9 +418,22 @@ export default function ReviewPage() {
                       </div>
                       
                       {data.reasoning?.[platform] && (
-                        <div className="mb-4 p-3 bg-slate-950/50 border border-slate-800 rounded-lg text-[10px] text-slate-500 italic leading-relaxed">
-                          <p className="font-bold uppercase tracking-tighter mb-1 opacity-50">AI Reasoning</p>
-                          {data.reasoning[platform]}
+                        <div className="mb-4 border border-slate-800 rounded-lg overflow-hidden">
+                          <button 
+                            onClick={() => setExpandedReasoning(prev => ({ ...prev, [platform]: !prev[platform] }))}
+                            className="w-full flex items-center justify-between px-3 py-1.5 bg-slate-950/80 hover:bg-slate-900 transition-colors text-[10px] text-slate-600 font-bold uppercase tracking-tighter"
+                          >
+                            <span className="flex items-center gap-2">
+                              <span className="opacity-50">AI Reasoning</span>
+                              {status === "WRITING" && data.post_contents[platform]?.length < 50 && <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>}
+                            </span>
+                            <span>{expandedReasoning[platform] ? "Collapse ↑" : "Expand ↓"}</span>
+                          </button>
+                          {expandedReasoning[platform] && (
+                            <div className="p-3 bg-slate-950/30 text-[10px] text-slate-600 italic leading-relaxed animate-in slide-in-from-top-1 duration-200">
+                              {data.reasoning[platform]}
+                            </div>
+                          )}
                         </div>
                       )}
 

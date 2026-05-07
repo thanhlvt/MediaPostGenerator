@@ -56,9 +56,9 @@ async def topic_agent_node(state: AgentState, config: RunnableConfig) -> Dict[st
             full_response += token
             await event_dispatcher.publish(thread_id, {"type": "topic_token", "content": token})
         
-    save_llm_output("topic_suggestions", prompt, full_response)
-    if full_reasoning:
-        save_llm_output("topic_reasoning", prompt, full_reasoning)
+    # Combine reasoning and response for the audit log
+    combined_output = f"--- REASONING ---\n{full_reasoning}\n\n--- CONTENT ---\n{full_response}"
+    save_llm_output("topic_suggestions", prompt, combined_output)
     
     # Clean and parse titles: remove empty lines and intro text
     raw_titles = [line.strip() for line in full_response.split("\n") if line.strip()]
@@ -88,15 +88,31 @@ async def research_agent_node(state: AgentState, config: RunnableConfig) -> Dict
     research_context = "\n".join([f"- {r['content']} (Source: {r['url']})" for r in search_results.get('results', [])])
     
     llm = get_llm()
-    summary_prompt = f"""Dựa trên kết quả tìm kiếm sau, hãy tạo một bản 'Research Brief' ngắn gọn để Writer Agent có thể viết bài.
-    Kết quả tìm kiếm:
-    {research_context}
-    
-    Yêu cầu Research Brief:
-    - Trích xuất ít nhất 3 facts/số liệu quan trọng.
-    - Có nguồn rõ ràng.
-    - Tóm tắt ý chính.
-    """
+    summary_prompt = f"""Bạn là Research Agent. Dựa vào kết quả tìm kiếm bên dưới, tạo Research Brief 
+cho Writer Agent viết bài blog SEO dạng listicle.
+TARGET AUDIENCE: Người từ 22–40 tuổi, đang quan tâm đến {state['niche']}, có nhu cầu hoặc lo ngại về {state['topic']}.
+
+DỮ LIỆU ĐẦU VÀO:
+{research_context}
+
+YÊU CẦU OUTPUT — trả về đúng cấu trúc sau, không thêm section khác:
+
+## MỤC ĐÍCH BÀI VIẾT
+[1 câu]
+
+## FACTS CHÍNH (3-5 facts, mỗi fact kèm nguồn)
+- Fact phải có số liệu cụ thể, actionable cho người đọc
+- Nếu số liệu mâu thuẫn giữa các nguồn, ghi rõ: "Nguồn A nói X, Nguồn B nói Y"
+
+## GÓC ĐỘ CHÍNH CỦA BÀI
+[Insight nổi bật nhất writer nên dùng làm trục bài]
+
+## CẢNH BÁO CHO WRITER
+[Thông tin chưa rõ ràng, cần verify, hoặc có thể outdated]
+
+## NGUỒN
+[Liệt kê URL]
+"""
     
     # summary_response = safe_invoke(llm, summary_prompt)
     # save_llm_output("research_brief", summary_prompt, summary_response.content)
@@ -112,9 +128,9 @@ async def research_agent_node(state: AgentState, config: RunnableConfig) -> Dict
             full_brief += token
             await event_dispatcher.publish(thread_id, {"type": "brief_token", "content": token})
         
-    save_llm_output("research_brief", summary_prompt, full_brief)
-    if full_reasoning:
-        save_llm_output("research_brief_reasoning", summary_prompt, full_reasoning)
+    # Combine reasoning and brief for the audit log
+    combined_brief = f"--- REASONING ---\n{full_reasoning}\n\n--- CONTENT ---\n{full_brief}"
+    save_llm_output("research_brief", summary_prompt, combined_brief)
     logger.info("--- END: Research Agent (Brief generated) ---")
     
     return {

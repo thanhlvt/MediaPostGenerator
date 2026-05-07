@@ -26,6 +26,7 @@ class GeneratedPost(Base):
 
     thread_id = Column(String, primary_key=True, index=True)
     topic = Column(String, nullable=True)
+    niche = Column(String, nullable=True)
     research_brief = Column(Text, nullable=True)
     post_contents = Column(JSON, nullable=True)
     status = Column(String, default="PENDING_REVIEW")
@@ -41,7 +42,7 @@ def init_db():
         except Exception as e:
             logger.error(f"Failed to create database tables: {e}")
 
-def save_post_to_db(thread_id: str, topic: str, research_brief: str, post_contents: dict, image_url: str = None, image_prompt: str = None):
+def save_post_to_db(thread_id: str, topic: str, niche: str, research_brief: str, post_contents: dict, image_url: str = None, image_prompt: str = None):
     if not SessionLocal:
         logger.warning("Database not initialized, skipping save_post_to_db")
         return
@@ -54,6 +55,7 @@ def save_post_to_db(thread_id: str, topic: str, research_brief: str, post_conten
             post = GeneratedPost(
                 thread_id=thread_id,
                 topic=topic,
+                niche=niche,
                 research_brief=research_brief,
                 post_contents=post_contents,
                 image_url=image_url,
@@ -63,6 +65,7 @@ def save_post_to_db(thread_id: str, topic: str, research_brief: str, post_conten
             db.add(post)
         else:
             post.topic = topic
+            post.niche = niche
             post.research_brief = research_brief
             post.post_contents = post_contents
             post.image_url = image_url
