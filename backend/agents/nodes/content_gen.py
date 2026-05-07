@@ -85,19 +85,28 @@ async def writer_agent_node(state: AgentState, config: RunnableConfig) -> Dict[s
         # post_contents[platform] = response.content
         
         full_response = ""
+        full_reasoning = ""
         # Notify start of streaming for this platform
         await event_dispatcher.publish(thread_id, {"type": "start", "platform": platform})
         
         try:
-            async for token in safe_stream_invoke(prompt):
-                full_response += token
-                # Stream token to SSE
-                await event_dispatcher.publish(thread_id, {"type": "token", "platform": platform, "content": token})
+            async for token_obj in safe_stream_invoke(prompt):
+                if token_obj["type"] == "reasoning":
+                    full_reasoning += token_obj["content"]
+                    await event_dispatcher.publish(thread_id, {"type": "reasoning", "platform": platform, "content": token_obj["content"]})
+                else:
+                    token = token_obj["content"]
+                    full_response += token
+                    # Stream token to SSE
+                    await event_dispatcher.publish(thread_id, {"type": "token", "platform": platform, "content": token})
             
             # Notify end of streaming for this platform
             await event_dispatcher.publish(thread_id, {"type": "end", "platform": platform})
             
             save_llm_output(f"post_{platform}", prompt, full_response)
+            if full_reasoning:
+                save_llm_output(f"post_{platform}_reasoning", prompt, full_reasoning)
+            
             post_contents[platform] = full_response
             platforms_written.append(platform)
         except Exception as e:

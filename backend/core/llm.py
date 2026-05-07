@@ -194,8 +194,16 @@ async def stream_llm_response(prompt: str, model_name: str = DEFAULT_TEXT_MODEL,
                                 
                             if "choices" in data_json and len(data_json["choices"]) > 0:
                                 delta = data_json["choices"][0].get("delta", {})
-                                if "content" in delta:
-                                    yield delta["content"]
+                                
+                                # Check for reasoning tokens (common in DeepSeek R1 / Reasoning models)
+                                if "reasoning" in delta and delta["reasoning"]:
+                                    yield {"type": "reasoning", "content": delta["reasoning"]}
+                                elif "thought" in delta and delta["thought"]:
+                                    yield {"type": "reasoning", "content": delta["thought"]}
+                                
+                                # Standard content
+                                if "content" in delta and delta["content"]:
+                                    yield {"type": "content", "content": delta["content"]}
                         except json.JSONDecodeError:
                             continue
 

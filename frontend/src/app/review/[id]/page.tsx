@@ -89,22 +89,32 @@ export default function ReviewPage() {
           lastIndexRef.current = payload.index;
         }
 
-        if (payload.type === "token") {
+        if (payload.type === "topic_token") {
+          setData((prev: any) => {
+            if (prev?.status !== "START") return prev; // Only append if in start/topic phase
+            return { ...prev, selected_title: (prev?.selected_title || "") + payload.content };
+          });
+        } else if (payload.type === "topic_reasoning") {
+          setData((prev: any) => ({ ...prev, topic_reasoning: (prev?.topic_reasoning || "") + payload.content }));
+        } else if (payload.type === "brief_token") {
+          setData((prev: any) => {
+            if (prev?.status !== "RESEARCHING") return prev; // Only append if in research phase
+            return { ...prev, research_brief: (prev?.research_brief || "") + payload.content };
+          });
+        } else if (payload.type === "brief_reasoning") {
+          setData((prev: any) => ({ ...prev, brief_reasoning: (prev?.brief_reasoning || "") + payload.content }));
+        } else if (payload.type === "token") {
           setData((prev: any) => {
             if (prev?.status !== "WRITING") return prev; // Only append if currently writing
             const newContents = { ...prev?.post_contents };
             newContents[payload.platform] = (newContents[payload.platform] || "") + payload.content;
             return { ...prev, post_contents: newContents };
           });
-        } else if (payload.type === "topic_token") {
+        } else if (payload.type === "reasoning") {
           setData((prev: any) => {
-            if (prev?.status !== "START") return prev; // Only append if in start/topic phase
-            return { ...prev, selected_title: (prev?.selected_title || "") + payload.content };
-          });
-        } else if (payload.type === "brief_token") {
-          setData((prev: any) => {
-            if (prev?.status !== "RESEARCHING") return prev; // Only append if in research phase
-            return { ...prev, research_brief: (prev?.research_brief || "") + payload.content };
+            const newReasoning = { ...prev?.reasoning || {} };
+            newReasoning[payload.platform] = (newReasoning[payload.platform] || "") + payload.content;
+            return { ...prev, reasoning: newReasoning };
           });
         } else if (payload.type === "error") {
           console.error("Stream error:", payload.message);
@@ -326,6 +336,12 @@ export default function ReviewPage() {
                 </div>
               ) : (
                 <div className="space-y-4 animate-in fade-in zoom-in-95 duration-500">
+                  {data.topic_reasoning && (
+                    <div className="p-3 bg-slate-900/50 border border-slate-800 rounded-lg text-[10px] text-slate-500 italic leading-relaxed">
+                      <p className="font-bold uppercase tracking-tighter mb-1 opacity-50">AI Reasoning</p>
+                      {data.topic_reasoning}
+                    </div>
+                  )}
                   <div className="p-4 bg-indigo-500/10 border border-indigo-500/30 rounded-lg">
                     <p className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-1">Selected Primary Topic</p>
                     <p className="text-base font-medium">{data.selected_title}</p>
@@ -351,6 +367,12 @@ export default function ReviewPage() {
                 </div>
               ) : (
                 <div className="prose prose-invert max-w-none text-slate-300 animate-in fade-in zoom-in-95 duration-500">
+                  {data.brief_reasoning && (
+                    <div className="p-3 bg-slate-900/50 border border-slate-800 rounded-lg text-[10px] text-slate-500 italic leading-relaxed mb-4">
+                      <p className="font-bold uppercase tracking-tighter mb-1 opacity-50">AI Reasoning</p>
+                      {data.brief_reasoning}
+                    </div>
+                  )}
                   <pre 
                     ref={briefScrollRef}
                     className="whitespace-pre-wrap font-sans text-xs bg-slate-900/50 p-4 rounded-lg border border-slate-800 max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700"
@@ -394,6 +416,14 @@ export default function ReviewPage() {
                           {data.scheduled_times?.[platform] ? `Scheduled: ${data.scheduled_times[platform]}` : "Pending Schedule"}
                         </span>
                       </div>
+                      
+                      {data.reasoning?.[platform] && (
+                        <div className="mb-4 p-3 bg-slate-950/50 border border-slate-800 rounded-lg text-[10px] text-slate-500 italic leading-relaxed">
+                          <p className="font-bold uppercase tracking-tighter mb-1 opacity-50">AI Reasoning</p>
+                          {data.reasoning[platform]}
+                        </div>
+                      )}
+
                       <pre className="whitespace-pre-wrap font-sans text-sm text-slate-300 leading-relaxed">{content}</pre>
                     </div>
                   ))}
