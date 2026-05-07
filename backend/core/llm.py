@@ -40,6 +40,9 @@ def get_llm(model_name: str = DEFAULT_TEXT_MODEL, temperature: float = 0.7):
             "extra_headers": {
                 "HTTP-Referer": "http://localhost:3000",
                 "X-Title": "MediaPostGenerator",
+            },
+            "extra_body": {
+                "reasoning": {"effort": "high"}
             }
         }
     )
@@ -113,6 +116,122 @@ def generate_image(prompt: str, model: str = None):
     except Exception as e:
         logger.error(f"Image generation failed: {str(e)}")
         return "https://via.placeholder.com/512x512.png?text=AI+Image+Gen+Error"
+
+class OpenRouterError(Exception):
+    """Custom exception for OpenRouter specific errors."""
+    def __init__(self, message, code=None, metadata=None):
+        super().__init__(message)
+        self.code = code
+        self.metadata = metadata
+
+async def stream_llm_response(prompt: str, model_name: str = DEFAULT_TEXT_MODEL, temperature: float = 0.7):
+    """
+    Streams the LLM response from OpenRouter with detailed error handling (Async).
+    Yields tokens (strings).
+    """
+    url = f"{OPENROUTER_BASE_URL}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost:3000",
+        "X-Title": "MediaPostGenerator"
+    }
+    
+    payload = {
+        "model": model_name,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temperature,
+        "stream": True,
+        "reasoning": {"effort": "high"}
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream("POST", url, headers=headers, json=payload) as response:
+                # Handle HTTP-level errors (OpenRouter error codes)
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    error_text = error_text.decode("utf-8")
+                    try:
+                        error_json = json.loads(error_text)
+                        error_msg = error_json.get("error", {}).get("message", error_text)
+                        error_code = error_json.get("error", {}).get("code", response.status_code)
+                    except:
+                        error_msg = error_text
+                        error_code = response.status_code
+                    
+                    logger.error(f"OpenRouter API Error {error_code}: {error_msg}")
+                    
+                    # Specific handling for OpenRouter codes
+                    if error_code == 402:
+                        raise OpenRouterError("Insufficient Credits: Vui lòng nạp thêm tiền vào tài khoản OpenRouter.", 402)
+                    elif error_code == 429:
+                        raise OpenRouterError("Rate Limited: Bạn đã vượt quá giới hạn lượt gọi API. Vui lòng thử lại sau.", 429)
+                    elif error_code in [502, 503]:
+                        raise OpenRouterError("Provider Error: Model hiện đang bận hoặc gặp sự cố. Vui lòng thử lại.", error_code)
+                    else:
+                        raise OpenRouterError(f"OpenRouter Error {error_code}: {error_msg}", error_code)
+
+                # Process the stream
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            break
+                        
+                        try:
+                            data_json = json.loads(data_str)
+                            
+                            # Check for error chunks in the stream
+                            if "error" in data_json:
+                                error_msg = data_json["error"].get("message", "Unknown stream error")
+                                error_code = data_json["error"].get("code", 500)
+                                logger.error(f"Stream error {error_code}: {error_msg}")
+                                raise OpenRouterError(error_msg, error_code)
+                                
+                            if "choices" in data_json and len(data_json["choices"]) > 0:
+                                delta = data_json["choices"][0].get("delta", {})
+                                if "content" in delta:
+                                    yield delta["content"]
+                        except json.JSONDecodeError:
+                            continue
+
+    except httpx.TimeoutException:
+        logger.error("OpenRouter request timed out (408).")
+        raise OpenRouterError("Request Timeout: Kết nối tới AI quá lâu, vui lòng thử lại.", 408)
+    except httpx.RequestError as e:
+        logger.error(f"HTTP Request Error: {str(e)}")
+        raise OpenRouterError(f"Connection Error: Không thể kết nối tới OpenRouter. ({str(e)})")
+
+async def safe_stream_invoke(prompt, model_name=DEFAULT_TEXT_MODEL, temperature=0.7, max_retries=2):
+    """
+    Wraps stream_llm_response with retry logic and full content aggregation (Async).
+    """
+    import asyncio
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            async for token in stream_llm_response(prompt, model_name, temperature):
+                yield token
+            return # Success
+        except OpenRouterError as e:
+            last_error = e
+            # Only retry on 408, 502, 503, 429
+            if e.code in [408, 502, 503, 429] and attempt < max_retries:
+                logger.warning(f"Retrying stream due to error {e.code}... ({attempt+1}/{max_retries})")
+                await asyncio.sleep(2)
+                continue
+            raise e
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries:
+                logger.warning(f"Retrying stream due to unexpected error... ({attempt+1}/{max_retries})")
+                await asyncio.sleep(2)
+                continue
+            raise e
 
 def get_openai_client():
     """

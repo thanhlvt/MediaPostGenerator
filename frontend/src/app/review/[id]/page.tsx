@@ -1,6 +1,6 @@
 "use client"; // Trigger Turbopack recompile
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 export default function ReviewPage() {
@@ -21,7 +21,19 @@ export default function ReviewPage() {
         if (res.ok) {
           const json = await res.json();
           console.log("Status update:", json);
-          setData(json);
+          // Only update base data if not currently writing/researching (to prevent race conditions with SSE)
+          setData((prev: any) => {
+            const isActiveStreaming = ["START", "RESEARCHING", "WRITING"].includes(json.status);
+            if (isActiveStreaming && prev) {
+               return { 
+                 ...json, 
+                 post_contents: prev.status === "WRITING" ? prev.post_contents : json.post_contents,
+                 selected_title: prev.status === "START" ? prev.selected_title : json.selected_title,
+                 research_brief: prev.status === "RESEARCHING" ? prev.research_brief : json.research_brief
+               };
+            }
+            return json;
+          });
         }
       } catch (err) {
         console.error("Polling error:", err);
@@ -36,6 +48,83 @@ export default function ReviewPage() {
 
     return () => clearInterval(interval);
   }, [thread_id]);
+
+  // SSE for real-time streaming
+  const lastIndexRef = useRef<number>(-1);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const briefScrollRef = useRef<HTMLPreElement>(null);
+  const postsScrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto scroll to bottom when content updates
+  useEffect(() => {
+    const activeStreamingPhases = ["START", "RESEARCHING", "WRITING"];
+    if (activeStreamingPhases.includes(data?.status)) {
+      // Scroll the main page
+      bottomRef.current?.scrollIntoView({ behavior: "auto" });
+      
+      // Scroll internal containers if they are active
+      if (data?.status === "RESEARCHING" && briefScrollRef.current) {
+        briefScrollRef.current.scrollTop = briefScrollRef.current.scrollHeight;
+      }
+      if (data?.status === "WRITING" && postsScrollRef.current) {
+        postsScrollRef.current.scrollTop = postsScrollRef.current.scrollHeight;
+      }
+    }
+  }, [data?.post_contents, data?.selected_title, data?.research_brief, data?.status]);
+
+  useEffect(() => {
+    if (!thread_id) return;
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const eventSource = new EventSource(`${apiUrl}/api/stream/${thread_id}`);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        console.log("SSE Event:", payload);
+
+        // Avoid processing duplicate messages (especially during history replay)
+        if (payload.index !== undefined) {
+          if (payload.index <= lastIndexRef.current) return;
+          lastIndexRef.current = payload.index;
+        }
+
+        if (payload.type === "token") {
+          setData((prev: any) => {
+            if (prev?.status !== "WRITING") return prev; // Only append if currently writing
+            const newContents = { ...prev?.post_contents };
+            newContents[payload.platform] = (newContents[payload.platform] || "") + payload.content;
+            return { ...prev, post_contents: newContents };
+          });
+        } else if (payload.type === "topic_token") {
+          setData((prev: any) => {
+            if (prev?.status !== "START") return prev; // Only append if in start/topic phase
+            return { ...prev, selected_title: (prev?.selected_title || "") + payload.content };
+          });
+        } else if (payload.type === "brief_token") {
+          setData((prev: any) => {
+            if (prev?.status !== "RESEARCHING") return prev; // Only append if in research phase
+            return { ...prev, research_brief: (prev?.research_brief || "") + payload.content };
+          });
+        } else if (payload.type === "error") {
+          console.error("Stream error:", payload.message);
+          setData((prev: any) => ({ ...prev, status: "ERROR", feedback: payload.message }));
+          eventSource.close();
+        }
+      } catch (err) {
+        console.error("Failed to parse SSE data:", err);
+      }
+    };
+
+    eventSource.onerror = (err) => {
+      console.error("SSE connection error, retrying...", err);
+      // eventSource.close(); // Don't close, let it retry automatically
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [thread_id, data?.status]);
 
   const handleReview = async (action: "APPROVE" | "REJECT") => {
     if (action === "REJECT" && !feedback) {
@@ -262,7 +351,10 @@ export default function ReviewPage() {
                 </div>
               ) : (
                 <div className="prose prose-invert max-w-none text-slate-300 animate-in fade-in zoom-in-95 duration-500">
-                  <pre className="whitespace-pre-wrap font-sans text-xs bg-slate-900/50 p-4 rounded-lg border border-slate-800 max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700">
+                  <pre 
+                    ref={briefScrollRef}
+                    className="whitespace-pre-wrap font-sans text-xs bg-slate-900/50 p-4 rounded-lg border border-slate-800 max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700"
+                  >
                     {data.research_brief}
                   </pre>
                 </div>
@@ -290,7 +382,10 @@ export default function ReviewPage() {
                   <div className="h-40 bg-slate-800/40 rounded-lg w-full border border-slate-700/30"></div>
                 </div>
               ) : (
-                <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-700 animate-in fade-in zoom-in-95 duration-500">
+                <div 
+                  ref={postsScrollRef}
+                  className="space-y-4 max-h-[500px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-700 animate-in fade-in zoom-in-95 duration-500"
+                >
                   {Object.entries(data.post_contents).map(([platform, content]: [string, any]) => (
                     <div key={platform} className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50 shadow-inner">
                       <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
@@ -337,6 +432,8 @@ export default function ReviewPage() {
         </div>
       </div>
 
+      <div ref={bottomRef} className="h-4" />
+      
       {/* Add sliding animation for the progress bar */}
       <style dangerouslySetInnerHTML={{
         __html: `

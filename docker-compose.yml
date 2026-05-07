@@ -6,6 +6,7 @@ services:
     volumes:
       - ./backend:/app
       - ./tmp:/app/tmp
+      - chroma_cache:/root/.cache/chroma
     env_file:
       - ./backend/.env
     environment:
@@ -56,3 +57,4 @@ services:
 volumes:
   chroma_data:
   postgres_data:
+  chroma_cache:

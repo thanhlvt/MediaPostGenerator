@@ -1,7 +1,10 @@
 import os
 import base64
 import requests
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 def save_llm_output(agent_name: str, prompt: str, response: str, extension: str = "txt"):
     """

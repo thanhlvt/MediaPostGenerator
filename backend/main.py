@@ -3,14 +3,18 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
+from fastapi.responses import StreamingResponse
 import uuid
 import logging
+import asyncio
+import json
 
 # Import the LangGraph application
 from agents.orchestrator import create_social_media_graph
 from agents.state import AgentState
 from memory.vector_db import add_post_to_memory, add_feedback_to_memory
 from core.db import init_db, save_post_to_db, update_post_status, get_all_posts, get_post_by_id
+from core.events import event_dispatcher
 
 logger = logging.getLogger(__name__)
 
@@ -81,14 +85,14 @@ async def start_generation(request: GenerateRequest, background_tasks: Backgroun
         "review_history": []
     }
     
-    def run_graph():
+    async def run_graph():
         config = {"configurable": {"thread_id": thread_id}}
         try:
-            for event in graph_app.stream(initial_state, config=config):
+            async for event in graph_app.astream(initial_state, config=config):
                 pass
             
             # Check if workflow reached review state
-            state_snapshot = graph_app.get_state(config)
+            state_snapshot = await graph_app.aget_state(config)
             if state_snapshot and state_snapshot.values:
                 state = state_snapshot.values
                 if state.get("status") == "WAITING_FOR_REVIEW":
@@ -100,12 +104,16 @@ async def start_generation(request: GenerateRequest, background_tasks: Backgroun
                         image_url=state.get("image_url"),
                         image_prompt=state.get("image_prompt")
                     )
+            # Signal end of all streams for this thread
+            await event_dispatcher.end_stream(thread_id)
         except Exception as e:
             logger.error(f"Graph execution failed: {e}")
             try:
-                graph_app.update_state(config, {"status": "ERROR", "feedback": f"System Error: {str(e)}"})
+                await graph_app.aupdate_state(config, {"status": "ERROR", "feedback": f"System Error: {str(e)}"})
+                await event_dispatcher.publish(thread_id, {"type": "error", "message": str(e)})
             except:
                 pass
+            await event_dispatcher.end_stream(thread_id)
 
     background_tasks.add_task(run_graph)
     
@@ -265,13 +273,13 @@ async def review_post(thread_id: str, request: ReviewRequest, background_tasks: 
     except Exception as e:
         logger.error(f"Failed to update state: {e}")
     
-    def resume_graph():
+    async def run_resume_graph():
         try:
-            for event in graph_app.stream(None, config=config):
+            async for event in graph_app.astream(None, config=config):
                  pass
                  
             # Check if workflow reached review state
-            state_snapshot = graph_app.get_state(config)
+            state_snapshot = await graph_app.aget_state(config)
             if state_snapshot and state_snapshot.values:
                 state = state_snapshot.values
                 if state.get("status") == "WAITING_FOR_REVIEW":
@@ -283,16 +291,41 @@ async def review_post(thread_id: str, request: ReviewRequest, background_tasks: 
                         image_url=state.get("image_url"),
                         image_prompt=state.get("image_prompt")
                     )
+            await event_dispatcher.end_stream(thread_id)
         except Exception as e:
             logger.error(f"Graph execution failed: {e}")
             try:
-                graph_app.update_state(config, {"status": "ERROR", "feedback": f"System Error: {str(e)}"})
+                await graph_app.aupdate_state(config, {"status": "ERROR", "feedback": f"System Error: {str(e)}"})
+                await event_dispatcher.publish(thread_id, {"type": "error", "message": str(e)})
             except:
                 pass
+            await event_dispatcher.end_stream(thread_id)
 
-    background_tasks.add_task(resume_graph)
+    background_tasks.add_task(run_resume_graph)
     
     return {"message": f"Post {new_status.lower()} successfully."}
+
+@app.get("/api/stream/{thread_id}")
+async def stream_updates(thread_id: str):
+    """
+    SSE endpoint to stream tokens and status updates to the frontend.
+    """
+    async def event_generator():
+        # Yield an initial event to confirm connection
+        yield f"data: {json.dumps({'type': 'connected'})}\n\n"
+        
+        async for event in event_dispatcher.subscribe(thread_id):
+            yield f"data: {json.dumps(event)}\n\n"
+    
+    return StreamingResponse(
+        event_generator(), 
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no" # Essential for Nginx
+        }
+    )
 
 if __name__ == "__main__":
     import uvicorn

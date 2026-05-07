@@ -2,18 +2,20 @@ from typing import Dict, Any
 import logging
 import os
 from langchain_core.runnables import RunnableConfig
-from core.llm import get_llm, generate_image, safe_invoke
+from core.llm import get_llm, generate_image, safe_invoke, safe_stream_invoke
 from core.utils import save_llm_output, save_image_from_url, save_image_to_outputs
+from core.events import event_dispatcher
 from agents.state import AgentState
 from memory.vector_db import search_past_posts, search_past_feedback
 
 logger = logging.getLogger(__name__)
 
-def writer_agent_node(state: AgentState) -> Dict[str, Any]:
+async def writer_agent_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
     """
     Writer Agent: Creates content for each platform based on research.
     """
     logger.info(f"--- START: Writer Agent (Platforms: {state['platforms']}) ---")
+    thread_id = config.get("configurable", {}).get("thread_id", "unknown")
     llm = get_llm()
     post_contents = state.get("post_contents") or {}
     approved_platforms = state.get("approved_platforms") or []
@@ -78,10 +80,30 @@ def writer_agent_node(state: AgentState) -> Dict[str, Any]:
         
         Nội dung bài viết:
         """
-        response = safe_invoke(llm, prompt)
-        save_llm_output(f"post_{platform}", prompt, response.content)
-        post_contents[platform] = response.content
-        platforms_written.append(platform)
+        # response = safe_invoke(llm, prompt)
+        # save_llm_output(f"post_{platform}", prompt, response.content)
+        # post_contents[platform] = response.content
+        
+        full_response = ""
+        # Notify start of streaming for this platform
+        await event_dispatcher.publish(thread_id, {"type": "start", "platform": platform})
+        
+        try:
+            async for token in safe_stream_invoke(prompt):
+                full_response += token
+                # Stream token to SSE
+                await event_dispatcher.publish(thread_id, {"type": "token", "platform": platform, "content": token})
+            
+            # Notify end of streaming for this platform
+            await event_dispatcher.publish(thread_id, {"type": "end", "platform": platform})
+            
+            save_llm_output(f"post_{platform}", prompt, full_response)
+            post_contents[platform] = full_response
+            platforms_written.append(platform)
+        except Exception as e:
+            logger.error(f"Error during streaming: {e}")
+            await event_dispatcher.publish(thread_id, {"type": "error", "message": str(e)})
+            raise e
         
         logger.info(f"--- END: Writer Agent (Finished {platform}) ---")
         return {
