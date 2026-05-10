@@ -8,6 +8,7 @@ export default function Home() {
   const [topic, setTopic] = useState("");
   const [niche, setNiche] = useState("Công nghệ thông tin");
   const [platforms, setPlatforms] = useState<string[]>(["TikTok"]);
+  const [quantity, setQuantity] = useState(1);
   const [loading, setLoading] = useState(false);
 
   const availablePlatforms = ["Instagram", "LinkedIn", "Twitter", "Facebook", "TikTok"];
@@ -43,15 +44,18 @@ export default function Home() {
     setLoading(true);
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const res = await fetch(`${apiUrl}/api/generate`, {
+      const isBatch = quantity > 1;
+      const endpoint = isBatch ? "/api/generate/batch" : "/api/generate";
+      
+      const res = await fetch(`${apiUrl}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic, niche, platforms }),
+        body: JSON.stringify({ topic, niche, platforms, quantity }),
       });
 
       if (res.ok) {
         const data = await res.json();
-        const targetUrl = `/review/${data.thread_id}`;
+        const targetUrl = isBatch ? "/history" : `/review/${data.thread_id}`;
         console.log("Redirecting to:", targetUrl);
         router.push(targetUrl);
       } else {
@@ -110,6 +114,26 @@ export default function Home() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Số lượng bài viết (Quantity)
+              </label>
+              <div className="flex items-center gap-4">
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  required
+                  value={quantity}
+                  onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+                  className="w-32 bg-slate-900/50 border border-slate-700/50 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
+                />
+                <span className="text-slate-400 text-sm italic">
+                  {quantity > 1 ? `Hệ thống sẽ tự động chia thành ${Math.ceil(quantity/10)} đợt xử lý.` : "Tạo 1 bài viết duy nhất."}
+                </span>
+              </div>
             </div>
 
             <div>

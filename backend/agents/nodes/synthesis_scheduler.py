@@ -96,8 +96,12 @@ def scheduler_agent_node(state: AgentState) -> Dict[str, Any]:
     logger.info(f"Scheduled times: {scheduled_times}")
     
     current_status = state.get("status")
-    # If we are here after a human action, keep that status. Otherwise, it's the first hit.
-    final_status = current_status if current_status in ["APPROVED", "REJECTED"] else "WAITING_FOR_REVIEW"
+    # If we just finished a round of writing/image gen or we were in REJECTED state, 
+    # move to PENDING_REVIEW for the user to see the updated results.
+    if current_status in ["WRITING", "GENERATING_IMAGE", "REJECTED"]:
+        final_status = "PENDING_REVIEW"
+    else:
+        final_status = current_status if current_status in ["APPROVED", "REJECTED"] else "PENDING_REVIEW"
     
     logger.info("--- END: Scheduler Agent (Processing finished) ---")
     return {

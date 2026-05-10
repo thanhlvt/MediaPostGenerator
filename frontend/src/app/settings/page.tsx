@@ -4,17 +4,18 @@ import { useState, useEffect } from "react";
 
 const TEXT_MODELS = [
   "deepseek/deepseek-v4-flash",
-  "google/gemini-3.1-flash-lite",
-  "anthropic/claude-sonnet-4.6",
-  "anthropic/claude-opus-4.6",
   "deepseek/deepseek-v4-pro",
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-20b",
+  "openai/gpt-5.5",
+  "google/gemini-3.1-flash-lite",
   "google/gemini-3.1-pro-preview",
   "google/gemini-3-flash-preview",
-  "openai/gpt-oss-120b",
+  "anthropic/claude-sonnet-4.6",
+  "anthropic/claude-opus-4.6",
+  "openai/gpt-5.4-mini",
   "moonshotai/kimi-k2.6",
   "minimax/minimax-m2.7",
-  "openai/gpt-5.5",
-  "openai/gpt-5.4-mini",
   "x-ai/grok-4.3",
   "z-ai/glm-5.1",
 ];
@@ -171,19 +172,17 @@ export default function SettingsPage() {
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className={`w-full py-4 rounded-xl font-bold text-white transition-all transform active:scale-[0.98] ${
-                isSaving 
-                  ? "bg-slate-700 cursor-not-allowed" 
-                  : "bg-gradient-to-r from-indigo-600 to-purple-600 hover:shadow-[0_0_20px_rgba(79,70,229,0.4)]"
-              }`}
+              className={`w-full py-4 rounded-xl font-bold text-white transition-all transform active:scale-[0.98] ${isSaving
+                ? "bg-slate-700 cursor-not-allowed"
+                : "bg-gradient-to-r from-indigo-600 to-purple-600 hover:shadow-[0_0_20px_rgba(79,70,229,0.4)]"
+                }`}
             >
               {isSaving ? "Đang lưu..." : "Lưu cài đặt"}
             </button>
-            
+
             {message && (
-              <div className={`p-4 rounded-lg text-sm text-center animate-in fade-in slide-in-from-bottom-2 ${
-                message.includes("thành công") ? "bg-green-500/20 text-green-400 border border-green-500/30" : "bg-red-500/20 text-red-400 border border-red-500/30"
-              }`}>
+              <div className={`p-4 rounded-lg text-sm text-center animate-in fade-in slide-in-from-bottom-2 ${message.includes("thành công") ? "bg-green-500/20 text-green-400 border border-green-500/30" : "bg-red-500/20 text-red-400 border border-red-500/30"
+                }`}>
                 {message}
               </div>
             )}

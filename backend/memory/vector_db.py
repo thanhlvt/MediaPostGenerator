@@ -66,13 +66,23 @@ def add_post_to_memory(post_id: str, content: str, metadata: dict):
     except Exception as e:
         logger.error(f"Failed to add post to memory: {e}")
 
-def search_past_posts(query: str, n_results: int = 3, niche: str = None):
+def search_past_posts(query: str, n_results: int = 3, niche: str = None, platform: str = None):
     try:
         collection = get_collection("posts_history")
         if collection.count() == 0:
             return {"documents": [[]], "metadatas": [[]]}
             
-        where_clause = {"niche": niche} if niche else None
+        where_conditions = []
+        if niche:
+            where_conditions.append({"niche": niche})
+        if platform:
+            where_conditions.append({"platform": platform})
+            
+        where_clause = None
+        if len(where_conditions) == 1:
+            where_clause = where_conditions[0]
+        elif len(where_conditions) > 1:
+            where_clause = {"$and": where_conditions}
         
         results = collection.query(
             query_texts=[query],
@@ -95,13 +105,23 @@ def add_feedback_to_memory(feedback_id: str, feedback_text: str, metadata: dict)
     except Exception as e:
         logger.error(f"Failed to add feedback to memory: {e}")
 
-def search_past_feedback(query: str, n_results: int = 3, niche: str = None):
+def search_past_feedback(query: str, n_results: int = 3, niche: str = None, platform: str = None):
     try:
         collection = get_collection("human_feedback")
         if collection.count() == 0:
             return {"documents": [[]], "metadatas": [[]]}
             
-        where_clause = {"niche": niche} if niche else None
+        where_conditions = []
+        if niche:
+            where_conditions.append({"niche": niche})
+        if platform:
+            where_conditions.append({"platform": platform})
+            
+        where_clause = None
+        if len(where_conditions) == 1:
+            where_clause = where_conditions[0]
+        elif len(where_conditions) > 1:
+            where_clause = {"$and": where_conditions}
         
         results = collection.query(
             query_texts=[query],

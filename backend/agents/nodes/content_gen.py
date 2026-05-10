@@ -52,8 +52,8 @@ async def writer_agent_node(state: AgentState, config: RunnableConfig) -> Dict[s
     try:
         niche = state.get("niche")
         search_query = state.get('selected_title') or state.get('topic') or "social media post"
-        past_posts = search_past_posts(search_query, n_results=1, niche=niche)
-        past_feedbacks = search_past_feedback(search_query, n_results=2, niche=niche)
+        past_posts = search_past_posts(search_query, n_results=1, niche=niche, platform=platform)
+        past_feedbacks = search_past_feedback(search_query, n_results=2, niche=niche, platform=platform)
         memories = []
         if past_posts and past_posts.get('documents') and len(past_posts['documents'][0]) > 0:
             memories.append("MẪU BÀI ĐĂNG THÀNH CÔNG TRONG QUÁ KHỨ:\n" + past_posts['documents'][0][0])
@@ -108,7 +108,8 @@ async def writer_agent_node(state: AgentState, config: RunnableConfig) -> Dict[s
         logger.info(f"--- END: Writer Agent (Finished {platform}) ---")
         return {
             "post_contents": {platform: full_response},
-            "platforms_written_this_round": [platform]
+            "platforms_written_this_round": [platform],
+            "status": "WRITING"
         }
     except Exception as e:
         logger.error(f"Error during streaming for {platform}: {e}")

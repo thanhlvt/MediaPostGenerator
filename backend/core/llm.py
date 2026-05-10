@@ -275,3 +275,4 @@ def get_openai_client():
         api_key=OPENROUTER_API_KEY,
         http_client=clean_client,
     )
+

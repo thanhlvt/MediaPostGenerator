@@ -60,21 +60,33 @@ def create_social_media_graph():
         ["platform_branch", "image_agent"]
     )
     
-    # Fan-in (Reduction): Connect the branches to the join node.
-    # LangGraph will wait for all parallel branches to finish before running image_agent.
-    workflow.add_edge("platform_branch", "image_agent")
+    # Fan-in (Reduction): Connect the branches.
+    # Decide whether to generate image or skip (if image already exists from previous attempt)
+    def skip_image_if_exists(state: AgentState) -> str:
+        if state.get("image_url"):
+            return "scheduler_agent"
+        return "image_agent"
+
+    workflow.add_conditional_edges(
+        "platform_branch",
+        skip_image_if_exists,
+        {
+            "image_agent": "image_agent",
+            "scheduler_agent": "scheduler_agent"
+        }
+    )
     workflow.add_edge("image_agent", "scheduler_agent")
 
     def decide_after_review(state: AgentState) -> str:
         if state.get("status") == "REJECTED":
-            return "research_agent"
+            return "fan_out"
         return END
 
     workflow.add_conditional_edges(
         "scheduler_agent",
         decide_after_review,
         {
-            "research_agent": "research_agent",
+            "fan_out": "fan_out",
             END: END
         }
     )

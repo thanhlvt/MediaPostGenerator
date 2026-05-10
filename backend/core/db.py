@@ -92,7 +92,7 @@ def update_settings(new_settings: dict):
     finally:
         db.close()
 
-def save_post_to_db(thread_id: str, topic: str, niche: str, research_brief: str, post_contents: dict, image_url: str = None, image_prompt: str = None):
+def save_post_to_db(thread_id: str, topic: str, niche: str, research_brief: str, post_contents: dict, image_url: str = None, image_prompt: str = None, status: str = "PENDING_REVIEW"):
     if not SessionLocal:
         logger.warning("Database not initialized, skipping save_post_to_db")
         return
@@ -110,7 +110,7 @@ def save_post_to_db(thread_id: str, topic: str, niche: str, research_brief: str,
                 post_contents=post_contents,
                 image_url=image_url,
                 image_prompt=image_prompt,
-                status="PENDING_REVIEW"
+                status=status
             )
             db.add(post)
         else:
@@ -120,12 +120,12 @@ def save_post_to_db(thread_id: str, topic: str, niche: str, research_brief: str,
             post.post_contents = post_contents
             post.image_url = image_url
             post.image_prompt = image_prompt
-            post.status = "PENDING_REVIEW"
+            post.status = status
             from sqlalchemy.orm.attributes import flag_modified
             flag_modified(post, "post_contents")
             
         db.commit()
-        logger.info(f"Successfully saved post data to DB for thread {thread_id}")
+        logger.info(f"Successfully saved post data to DB for thread {thread_id} with status {status}")
     except Exception as e:
         db.rollback()
         logger.error(f"Error saving to db: {e}")
@@ -152,18 +152,24 @@ def update_post_status(thread_id: str, new_status: str):
     finally:
         db.close()
 
-def get_all_posts():
+def get_all_posts(page: int = 1, limit: int = 10):
     if not SessionLocal:
         logger.warning("Database not initialized, skipping get_all_posts")
-        return []
+        return {"posts": [], "total": 0, "page": page, "limit": limit}
         
     db = SessionLocal()
     try:
-        posts = db.query(GeneratedPost).order_by(GeneratedPost.created_at.desc()).all()
-        return posts
+        total = db.query(GeneratedPost).count()
+        posts = db.query(GeneratedPost).order_by(GeneratedPost.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+        return {
+            "posts": posts,
+            "total": total,
+            "page": page,
+            "limit": limit
+        }
     except Exception as e:
         logger.error(f"Error fetching all posts: {e}")
-        return []
+        return {"posts": [], "total": 0, "page": page, "limit": limit}
     finally:
         db.close()
 
@@ -179,6 +185,45 @@ def get_post_by_id(thread_id: str):
     except Exception as e:
         logger.error(f"Error fetching post by id {thread_id}: {e}")
         return None
+    finally:
+        db.close()
+
+def delete_post_by_id(thread_id: str):
+    if not SessionLocal:
+        logger.warning("Database not initialized, skipping delete_post_by_id")
+        return False
+        
+    db = SessionLocal()
+    try:
+        post = db.query(GeneratedPost).filter(GeneratedPost.thread_id == thread_id).first()
+        if post:
+            db.delete(post)
+            db.commit()
+            logger.info(f"Successfully deleted post with thread_id {thread_id}")
+            return True
+        return False
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting post by id {thread_id}: {e}")
+        return False
+    finally:
+        db.close()
+
+def delete_posts_batch(thread_ids: list):
+    if not SessionLocal:
+        logger.warning("Database not initialized, skipping delete_posts_batch")
+        return 0
+        
+    db = SessionLocal()
+    try:
+        count = db.query(GeneratedPost).filter(GeneratedPost.thread_id.in_(thread_ids)).delete(synchronize_session=False)
+        db.commit()
+        logger.info(f"Successfully deleted {count} posts in batch")
+        return count
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error batch deleting posts: {e}")
+        return 0
     finally:
         db.close()
 

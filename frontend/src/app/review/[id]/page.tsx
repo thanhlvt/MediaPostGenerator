@@ -15,6 +15,14 @@ export default function ReviewPage() {
     topic: false,
     brief: false
   });
+  const [copiedPlatform, setCopiedPlatform] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string, platform: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedPlatform(platform);
+      setTimeout(() => setCopiedPlatform(null), 2000);
+    });
+  };
 
   useEffect(() => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -157,8 +165,9 @@ export default function ReviewPage() {
     };
   }, [thread_id, data?.status]);
 
-  const handleReview = async (action: "APPROVE" | "REJECT") => {
-    if (action === "REJECT" && !feedback) {
+  const handleReview = async (action: "APPROVE" | "REJECT", manualFeedback?: string) => {
+    const finalFeedback = manualFeedback || feedback;
+    if (action === "REJECT" && !finalFeedback) {
       alert("Please provide feedback for rejection.");
       return;
     }
@@ -169,7 +178,7 @@ export default function ReviewPage() {
       const res = await fetch(`${apiUrl}/api/review/${thread_id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, feedback: action === "REJECT" ? feedback : null }),
+        body: JSON.stringify({ action, feedback: action === "REJECT" ? finalFeedback : null }),
       });
 
       if (res.ok) {
@@ -179,8 +188,8 @@ export default function ReviewPage() {
           needsClearPostsRef.current = true;
           setData((prev: any) => ({ ...prev, status: "WRITING", post_contents: {} }));
         } else {
-          alert("Post Approved and Scheduled!");
-          router.push("/");
+          // Success! Update local status to reflect approval immediately
+          setData((prev: any) => ({ ...prev, status: "APPROVED" }));
         }
       }
     } catch (err) {
@@ -198,14 +207,14 @@ export default function ReviewPage() {
     { key: "GENERATING_IMAGE", label: "Thiết kế ảnh minh họa", icon: "🎨" },
     { key: "QUALITY_ASSURANCE", label: "Kiểm định chất lượng", icon: "🛡️" },
     { key: "SCHEDULING", label: "Lập lịch đăng bài", icon: "📅" },
-    { key: "WAITING_FOR_REVIEW", label: "Hoàn tất", icon: "✅" },
+    { key: "PENDING_REVIEW", label: "Hoàn tất", icon: "✅" },
   ];
 
   let displayStatus = data?.status || "START";
   if (displayStatus === "REJECTED") displayStatus = "WRITING";
   const currentPhaseIndex = data ? Math.max(0, phases.findIndex(p => p.key === displayStatus)) : 0;
   const status = (data?.status || "START").toUpperCase();
-  const isWaitingForReview = status === "WAITING_FOR_REVIEW" || status === "PENDING_REVIEW";
+  const isWaitingForReview = status === "PENDING_REVIEW";
   const isCompleted = status === "APPROVED" || status === "REJECTED";
   const isError = status === "ERROR";
 
@@ -239,14 +248,32 @@ export default function ReviewPage() {
           </div>
           <div className="flex items-center gap-3">
             {status === "APPROVED" && (
-              <span className="bg-green-500/20 text-green-400 px-4 py-2 rounded-lg text-sm font-bold border border-green-500/50 flex items-center gap-2 shadow-[0_0_15px_rgba(34,197,94,0.2)]">
-                <span className="text-base">✅</span> POST APPROVED
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="bg-green-500/20 text-green-400 px-4 py-2 rounded-lg text-sm font-bold border border-green-500/50 flex items-center gap-2 shadow-[0_0_15px_rgba(34,197,94,0.2)]">
+                  <span className="text-base">✅</span> POST APPROVED
+                </span>
+                <button
+                  onClick={() => handleReview("REJECT", "Tạo lại nội dung mới.")}
+                  disabled={actionLoading}
+                  className="bg-white/5 hover:bg-white/10 text-slate-300 px-4 py-2 rounded-lg text-sm transition-all border border-white/10 flex items-center gap-2"
+                >
+                  Tạo lại 🔄
+                </button>
+              </div>
             )}
             {status === "REJECTED" && (
-              <span className="bg-red-500/20 text-red-400 px-4 py-2 rounded-lg text-sm font-bold border border-red-500/50 flex items-center gap-2 shadow-[0_0_15px_rgba(239,68,68,0.2)]">
-                <span className="text-base">❌</span> POST REJECTED
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="bg-red-500/20 text-red-400 px-4 py-2 rounded-lg text-sm font-bold border border-red-500/50 flex items-center gap-2 shadow-[0_0_15px_rgba(239,68,68,0.2)]">
+                  <span className="text-base">❌</span> POST REJECTED
+                </span>
+                <button
+                  onClick={() => handleReview("REJECT", "Tạo lại nội dung mới.")}
+                  disabled={actionLoading}
+                  className="bg-white/5 hover:bg-white/10 text-slate-300 px-4 py-2 rounded-lg text-sm transition-all border border-white/10 flex items-center gap-2"
+                >
+                  Tạo lại 🔄
+                </button>
+              </div>
             )}
 
             {!isCompleted && (
@@ -342,7 +369,17 @@ export default function ReviewPage() {
                   </div>
                 ) : (
                   <div className="p-4 bg-indigo-500/10 border border-indigo-500/30 rounded-lg animate-in fade-in zoom-in-95 duration-500">
-                    <p className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-1">Selected Primary Topic</p>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Selected Primary Topic</p>
+                      {data.selected_title && (
+                        <button
+                          onClick={() => copyToClipboard(data.selected_title, "topic")}
+                          className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold uppercase transition-colors"
+                        >
+                          {copiedPlatform === "topic" ? "✅ Copied!" : "📋 Copy"}
+                        </button>
+                      )}
+                    </div>
                     <p className="text-base font-medium">{data.selected_title}</p>
                   </div>
                 )}
@@ -431,9 +468,19 @@ export default function ReviewPage() {
                       <div key={platform} className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50 shadow-inner">
                         <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
                           <h3 className="font-bold text-sm bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded">{platform}</h3>
-                          <span className="text-[10px] bg-slate-800 px-2 py-1 rounded-full text-slate-400 font-medium">
-                            {data.scheduled_times?.[platform] ? `Scheduled: ${data.scheduled_times[platform]}` : "Pending Schedule"}
-                          </span>
+                          <div className="flex items-center gap-3">
+                            {data.post_contents?.[platform] && status === "APPROVED" && (
+                              <button
+                                onClick={() => copyToClipboard(data.post_contents[platform], platform)}
+                                className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold uppercase flex items-center gap-1 transition-colors"
+                              >
+                                {copiedPlatform === platform ? "✅ Copied!" : "📋 Copy Content"}
+                              </button>
+                            )}
+                            <span className="text-[10px] bg-slate-800 px-2 py-1 rounded-full text-slate-400 font-medium">
+                              {data.scheduled_times?.[platform] ? `Scheduled: ${data.scheduled_times[platform]}` : "Pending Schedule"}
+                            </span>
+                          </div>
                         </div>
 
                         {data.reasoning?.[platform] && (

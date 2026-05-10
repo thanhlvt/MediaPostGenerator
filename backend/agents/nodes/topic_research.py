@@ -137,3 +137,55 @@ YÊU CẦU OUTPUT — trả về đúng cấu trúc sau, không thêm section kh
         "research_brief": full_brief,
         "status": "WRITING"
     }
+
+import json
+def generate_sub_topics(topic: str, niche: str, quantity: int) -> list:
+    """
+    Generate N distinct sub-topics/angles for a given topic and niche.
+    Returns a list of strings.
+    """
+    from core.utils import save_llm_output
+    llm = get_llm(temperature=0.8, agent_type="topic")
+    
+    prompt = f"""Bạn là một chuyên gia lập kế hoạch nội dung. 
+Chủ đề gốc: "{topic}"
+Lĩnh vực: "{niche}"
+Số lượng yêu cầu: {quantity} bài viết khác nhau.
+
+Hãy chia nhỏ chủ đề gốc này thành {quantity} góc độ (angles) hoặc chủ đề con (sub-topics) khác nhau để viết bài.
+Mỗi góc độ phải độc đáo, không trùng lặp nội dung với nhau, nhưng vẫn bám sát chủ đề gốc và phù hợp với lĩnh vực "{niche}".
+
+YÊU CẦU OUTPUT:
+- Trả về ĐÚNG định dạng JSON là một mảng các chuỗi (Array of Strings).
+- Ví dụ: ["Chủ đề con 1", "Chủ đề con 2", ...]
+- KHÔNG giải thích gì thêm, chỉ trả về JSON.
+"""
+    
+    try:
+        response = llm.invoke(prompt)
+        content = response.content.strip()
+        
+        # Extract reasoning if available (DeepSeek/Google models on OpenRouter)
+        reasoning = ""
+        if hasattr(response, "response_metadata") and response.response_metadata:
+            meta = response.response_metadata
+            reasoning = meta.get("reasoning") or meta.get("reasoning_content") or ""
+        
+        # Save output for debugging/audit
+        combined_output = f"--- REASONING ---\n{reasoning}\n\n--- CONTENT ---\n{content}"
+        save_llm_output("batch_sub_topics", prompt, combined_output)
+        
+        # Clean potential markdown code blocks
+        json_content = content
+        if json_content.startswith("```json"):
+            json_content = json_content[7:-3].strip()
+        elif json_content.startswith("```"):
+            json_content = json_content[3:-3].strip()
+            
+        sub_topics = json.loads(json_content)
+        if isinstance(sub_topics, list):
+            return [str(s) for s in sub_topics[:quantity]]
+        return [f"{topic} - Phần {i+1}" for i in range(quantity)]
+    except Exception as e:
+        logger.error(f"Failed to generate sub-topics: {e}")
+        return [f"{topic} - Phần {i+1}" for i in range(quantity)]

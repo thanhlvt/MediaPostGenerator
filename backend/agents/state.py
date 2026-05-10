@@ -48,7 +48,7 @@ class AgentState(TypedDict):
     platforms_written_this_round: Annotated[List[str], merge_list] # Tracks progress
     
     # Human Review
-    status: Annotated[str, take_last] # "START", "RESEARCHING", "WRITING", "WAITING_FOR_REVIEW", "APPROVED", "REJECTED"
+    status: Annotated[str, take_last] # "START", "RESEARCHING", "WRITING", "PENDING_REVIEW", "APPROVED", "REJECTED"
     feedback: Annotated[Optional[str], take_last]
     review_history: Annotated[List[str], merge_list]
     
