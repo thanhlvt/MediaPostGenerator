@@ -118,11 +118,10 @@ async def get_status(thread_id: str):
     
     state = state_snapshot.values
     current_status = state.get("status", "PROCESSING")
-    is_waiting = (len(state_snapshot.next) > 0 and "scheduler_agent" in state_snapshot.next) or (current_status == "PENDING_REVIEW")
     
-    if current_status in ["APPROVED", "REJECTED"]:
-        is_waiting = False
-
+    # Check if graph is paused at the review step
+    is_waiting = len(state_snapshot.next) > 0 and "scheduler_agent" in state_snapshot.next
+    
     return {
         "status": "PENDING_REVIEW" if is_waiting else current_status,
         "selected_title": state.get("selected_title"),

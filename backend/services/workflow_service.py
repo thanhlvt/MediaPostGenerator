@@ -57,9 +57,11 @@ async def run_graph_task(thread_id: str, initial_state: dict, wait_for_sse: bool
                 state_snapshot = await graph_app.aget_state(config)
                 if state_snapshot and state_snapshot.values:
                     state = state_snapshot.values
-                    current_status = state.get("status", "PENDING_REVIEW")
+                    # If the graph is interrupted before scheduler_agent, it means it's waiting for review
+                    is_waiting_for_review = state_snapshot.next and "scheduler_agent" in state_snapshot.next
+                    current_status = "PENDING_REVIEW" if is_waiting_for_review else state.get("status", "PENDING_REVIEW")
                     
-                    # Force update final status
+                    # Force update final status in DB
                     update_post_status(thread_id, current_status)
                     
                     if current_status == "PENDING_REVIEW" or (state_snapshot.next and "scheduler_agent" in state_snapshot.next):

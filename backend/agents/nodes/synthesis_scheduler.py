@@ -95,13 +95,17 @@ def scheduler_agent_node(state: AgentState) -> Dict[str, Any]:
     }
     logger.info(f"Scheduled times: {scheduled_times}")
     
-    current_status = state.get("status")
-    # If we just finished a round of writing/image gen or we were in REJECTED state, 
-    # move to PENDING_REVIEW for the user to see the updated results.
-    if current_status in ["WRITING", "GENERATING_IMAGE", "REJECTED"]:
+    # Logic:
+    # 1. If we are currently REJECTED, it means we are about to loop back to fan_out.
+    #    Set status to WRITING so the UI knows AI is working.
+    # 2. If we were WRITING or GENERATING_IMAGE, it means we just finished a round.
+    #    Set status to PENDING_REVIEW for the user.
+    if current_status == "REJECTED":
+        final_status = "WRITING"
+    elif current_status in ["WRITING", "GENERATING_IMAGE"]:
         final_status = "PENDING_REVIEW"
     else:
-        final_status = current_status if current_status in ["APPROVED", "REJECTED"] else "PENDING_REVIEW"
+        final_status = current_status if current_status == "APPROVED" else "PENDING_REVIEW"
     
     logger.info("--- END: Scheduler Agent (Processing finished) ---")
     return {

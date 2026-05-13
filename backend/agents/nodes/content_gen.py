@@ -108,8 +108,7 @@ async def writer_agent_node(state: AgentState, config: RunnableConfig) -> Dict[s
         logger.info(f"--- END: Writer Agent (Finished {platform}) ---")
         return {
             "post_contents": {platform: full_response},
-            "platforms_written_this_round": [platform],
-            "status": "WRITING"
+            "platforms_written_this_round": [platform]
         }
     except Exception as e:
         logger.error(f"Error during streaming for {platform}: {e}")
